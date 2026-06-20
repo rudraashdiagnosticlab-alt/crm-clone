@@ -1,0 +1,41 @@
+import { IsEmail, IsEnum, IsOptional, IsString, MinLength, IsBoolean } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
+import { Role } from '@crm/database';
+
+export class CreateUserDto {
+  @ApiProperty()
+  @IsString()
+  name: string;
+
+  @ApiProperty({ example: 'caller11@crm.local' })
+  @IsEmail()
+  email: string;
+
+  @ApiProperty({ minLength: 8 })
+  @IsString()
+  @MinLength(8)
+  password: string;
+
+  @ApiProperty({ enum: Role, example: Role.employee })
+  @IsEnum(Role)
+  role: Role;
+}
+
+export class UpdateUserDto extends PartialType(CreateUserDto) {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
+}
+
+export class ListUsersQueryDto {
+  @ApiPropertyOptional({ enum: Role })
+  @IsOptional()
+  @IsEnum(Role)
+  role?: Role;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
+}

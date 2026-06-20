@@ -1,0 +1,352 @@
+// CRM Lead & Sales System — data model
+// Standards (DB-013..017): UUID PKs, soft-delete on leads, indexes on filter
+// columns, Prisma-only access. See SOLUTION_DESIGN.md §5.
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"] // enables datasource `extensions`
+}
+
+datasource db {
+  provider   = "postgresql"
+  extensions = [pgcrypto] // pgcrypto -> gen_random_uuid(); vector (Phase 5 AI embeddings) re-add once pgvector is installed
+}
+
+// ─────────────────────────── Enums ───────────────────────────
+
+enum Role {
+  admin
+  team_leader
+  employee // caller
+  viewer
+}
+
+enum Timezone {
+  EST
+  CST
+  MST
+  PST
+}
+
+enum LeadStatus {
+  new
+  in_progress
+  contacted
+  interested
+  closed
+  rejected
+}
+
+enum CallOutcome {
+  callback
+  interested
+  no_answer
+  busy
+  wrong_number
+  closed_deal
+  follow_up_required
+}
+
+enum NotificationType {
+  target_complete
+  low_progress
+  new_leads
+  idle_alert
+}
+
+enum AiTopic {
+  tax
+  bookkeeping
+  sales_script
+  company_ops
+}
+
+enum SpeakingSpeed {
+  too_fast
+  optimal
+  too_slow
+}
+
+/// Lead → Quo integration sync state
+enum QuoSyncStatus {
+  not_synced
+  pending
+  synced
+  failed
+}
+
+// ─────────────────────────── Core ────────────────────────────
+
+/// DB-001 — all system users
+model User {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name         String
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  role         Role     @default(employee)
+  isActive     Boolean  @default(true) @map("is_active")
+
+  // MFA (TOTP) — see auth module
+  mfaEnabled Boolean @default(false) @map("mfa_enabled")
+  mfaSecret  String? @map("mfa_secret")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // relations
+  employee          Employee?
+  assignedLeads     Lead[]              @relation("LeadAssignedTo")
+  targetsSet        Target[]            @relation("TargetSetBy")
+  activities        Activity[]
+  assignmentsMade   Assignment[]        @relation("AssignmentAssignedBy")
+  assignmentsTaken  Assignment[]        @relation("AssignmentCaller")
+  calls             Call[]
+  notes             Note[]
+  productivityLogs  ProductivityLog[]
+  notifications     Notification[]
+  aiSessions        AiTrainingSession[]
+  coachingReports   VoiceCoachingReport[]
+
+  @@index([role])
+  @@index([isActive])
+  @@map("users")
+}
+
+/// DB-008 — extended caller/employee profile
+model Employee {
+  id               String   @id @db.Uuid // FK == users.id
+  user             User     @relation(fields: [id], references: [id], onDelete: Cascade)
+  shiftTimezone    Timezone @default(EST) @map("shift_timezone")
+  performanceScore Float    @default(0) @map("performance_score")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  @@map("employees")
+}
+
+/// DB-002 — central leads table (soft-deleted)
+model Lead {
+  id           String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  leadId       String     @map("lead_id") // external id from import
+  businessName String     @map("business_name")
+  phone        String
+  email        String?
+  state        String
+  city         String
+  timezone     Timezone   @default(EST)
+  status       LeadStatus @default(new)
+  qualityScore Int?       @map("quality_score") // AI lead score 0..100
+
+  // ── Quo integration (see modules/quo) ──
+  quoStatus     QuoSyncStatus @default(not_synced) @map("quo_status")
+  quoExternalId String?       @map("quo_external_id") // id returned by Quo
+  quoResponse   Json?         @map("quo_response") // last raw Quo response
+  quoError      String?       @map("quo_error") // last sync error message
+  quoSyncedAt   DateTime?     @map("quo_synced_at")
+
+  assignedToId String? @map("assigned_to") @db.Uuid
+  assignedTo   User?   @relation("LeadAssignedTo", fields: [assignedToId], references: [id])
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  assignments Assignment[]
+  calls       Call[]
+  notes       Note[]
+  activities  Activity[]
+  quoSyncLogs QuoSyncLog[]
+
+  // DB-015 — indexes on every dashboard filter column
+  @@unique([leadId])
+  @@index([state])
+  @@index([city])
+  @@index([timezone])
+  @@index([status])
+  @@index([assignedToId])
+  @@index([deletedAt])
+  @@map("leads")
+}
+
+/// Audit trail of every Quo sync attempt (request + response). Powers error
+/// handling/visibility and is the pattern other module integrations will reuse.
+model QuoSyncLog {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  leadId     String   @map("lead_id") @db.Uuid
+  lead       Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  success    Boolean
+  statusCode Int?     @map("status_code") // HTTP status from Quo
+  request    Json? // payload sent to Quo
+  response   Json? // raw response (or error body) from Quo
+  error      String? // error message if the call failed
+  durationMs Int?     @map("duration_ms")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([leadId])
+  @@index([createdAt])
+  @@map("quo_sync_logs")
+}
+
+/// DB-003 — planned lead targets per city
+model Target {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  state         String
+  city          String
+  timezone      Timezone
+  monthlyTarget Int      @map("monthly_target")
+  setById       String?  @map("set_by") @db.Uuid
+  setBy         User?    @relation("TargetSetBy", fields: [setById], references: [id])
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@unique([state, city, timezone])
+  @@index([timezone])
+  @@map("targets")
+}
+
+/// DB-004 — immutable audit/activity log (insert-only)
+model Activity {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  leadId    String?  @map("lead_id") @db.Uuid
+  lead      Lead?    @relation(fields: [leadId], references: [id])
+  userId    String   @map("user_id") @db.Uuid
+  user      User     @relation(fields: [userId], references: [id])
+  action    String
+  oldValue  String?  @map("old_value")
+  newValue  String?  @map("new_value")
+  ipAddress String?  @map("ip_address")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([leadId])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("activities")
+}
+
+// ─────────────────────────── Calling ─────────────────────────
+
+/// DB-005 — lead → caller assignment (history-trackable)
+model Assignment {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  leadId       String   @map("lead_id") @db.Uuid
+  lead         Lead     @relation(fields: [leadId], references: [id])
+  callerId     String   @map("caller_id") @db.Uuid
+  caller       User     @relation("AssignmentCaller", fields: [callerId], references: [id])
+  assignedById String   @map("assigned_by") @db.Uuid
+  assignedBy   User     @relation("AssignmentAssignedBy", fields: [assignedById], references: [id])
+  batchName    String?  @map("batch_name")
+  isActive     Boolean  @default(true) @map("is_active")
+  assignedAt   DateTime @default(now()) @map("assigned_at")
+
+  @@index([leadId])
+  @@index([callerId])
+  @@map("assignments")
+}
+
+/// DB-006 — call records
+model Call {
+  id           String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  leadId       String       @map("lead_id") @db.Uuid
+  lead         Lead         @relation(fields: [leadId], references: [id])
+  callerId     String       @map("caller_id") @db.Uuid
+  caller       User         @relation(fields: [callerId], references: [id])
+  startTime    DateTime     @map("start_time")
+  endTime      DateTime?    @map("end_time")
+  durationSecs Int?         @map("duration_secs")
+  recordingUrl String?      @map("recording_url")
+  outcome      CallOutcome?
+  providerSid  String?      @map("provider_sid") // Twilio call SID
+  createdAt    DateTime     @default(now()) @map("created_at")
+
+  notes           Note[]
+  coachingReport  VoiceCoachingReport?
+
+  @@index([leadId])
+  @@index([callerId])
+  @@index([startTime])
+  @@map("calls")
+}
+
+/// DB-007 — call notes + follow-up
+model Note {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  leadId           String    @map("lead_id") @db.Uuid
+  lead             Lead      @relation(fields: [leadId], references: [id])
+  callId           String?   @map("call_id") @db.Uuid
+  call             Call?     @relation(fields: [callId], references: [id])
+  noteText         String    @map("note_text")
+  nextFollowupDate DateTime? @map("next_followup_date")
+  createdById      String    @map("created_by") @db.Uuid
+  createdBy        User      @relation(fields: [createdById], references: [id])
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  @@index([leadId])
+  @@index([nextFollowupDate])
+  @@map("notes")
+}
+
+// ──────────────────── Reporting & Notifications ──────────────
+
+/// DB-009 — daily productivity per caller
+model ProductivityLog {
+  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  callerId           String   @map("caller_id") @db.Uuid
+  caller             User     @relation(fields: [callerId], references: [id])
+  date               DateTime @db.Date
+  callsMade          Int      @default(0) @map("calls_made")
+  connectedCalls     Int      @default(0) @map("connected_calls")
+  productiveTimeSecs Int      @default(0) @map("productive_time_secs")
+  idleTimeSecs       Int      @default(0) @map("idle_time_secs")
+  dealsClosed        Int      @default(0) @map("deals_closed")
+
+  @@unique([callerId, date])
+  @@index([date])
+  @@map("productivity_logs")
+}
+
+/// DB-010 — in-app notifications
+model Notification {
+  id        String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String           @map("user_id") @db.Uuid
+  user      User             @relation(fields: [userId], references: [id])
+  title     String
+  body      String
+  type      NotificationType
+  isRead    Boolean          @default(false) @map("is_read")
+  createdAt DateTime         @default(now()) @map("created_at")
+
+  @@index([userId, isRead])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+/// DB-011 — AI chatbot sessions
+model AiTrainingSession {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  user      User     @relation(fields: [userId], references: [id])
+  question  String
+  answer    String
+  topic     AiTopic?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@map("ai_training_sessions")
+}
+
+/// DB-012 — AI voice-coaching analysis per call
+model VoiceCoachingReport {
+  id                    String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  callId                String        @unique @map("call_id") @db.Uuid
+  call                  Call          @relation(fields: [callId], references: [id])
+  callerId              String        @map("caller_id") @db.Uuid
+  caller                User          @relation(fields: [callerId], references: [id])
+  confidenceScore       Int?          @map("confidence_score") // 1..10
+  speakingSpeedRating   SpeakingSpeed? @map("speaking_speed_rating")
+  objectionHandlingScore Int?         @map("objection_handling_score") // 1..10
+  missedOpportunities   Json?         @map("missed_opportunities")
+  createdAt             DateTime      @default(now()) @map("created_at")
+
+  @@index([callerId])
+  @@map("voice_coaching_reports")
+}
