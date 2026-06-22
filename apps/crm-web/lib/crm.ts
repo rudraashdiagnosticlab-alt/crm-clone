@@ -262,7 +262,24 @@ export const communicationsApi = {
     (await api.post(`/communications/lead/${leadId}/sms`, { body })).data,
   startCall: async (leadId: string): Promise<{ callId: string; tel: string; phone: string }> =>
     (await api.post(`/communications/lead/${leadId}/call`, {})).data,
+  latestIncoming: async (): Promise<IncomingCall | null> =>
+    (await api.get('/communications/incoming/latest')).data,
+  analytics: async (period = 'week'): Promise<CommAnalytics> =>
+    (await api.get('/communications/analytics', { params: { period } })).data,
 };
+
+export interface IncomingCall {
+  callId: string;
+  at: string;
+  status: string | null;
+  lead: { id: string; businessName: string; phone: string; city: string; state: string; status: string };
+}
+export interface CommAnalytics {
+  period: string;
+  calls: { total: number; inbound: number; outbound: number; missed: number; avgDurationSecs: number; totalTalkSecs: number };
+  messages: { total: number; inbound: number; outbound: number };
+  series: { date: string; calls: number; messages: number }[];
+}
 
 export interface IntegrationStatus {
   openphone: { provider: string; configured: boolean; sandbox: boolean; baseUrl: string; apiKeyHint: string | null };

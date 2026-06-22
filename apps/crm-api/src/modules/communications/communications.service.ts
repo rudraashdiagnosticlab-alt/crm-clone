@@ -243,7 +243,9 @@ export class CommunicationsService {
   }
 
   // ── Unified conversation timeline for a lead ──
-  async getTimeline(leadId: string) {
+  // PERM: recordings / transcripts / AI summaries are redacted unless the
+  // caller may view them (admin + team leader). Pass canViewRecordings.
+  async getTimeline(leadId: string, canViewRecordings = true) {
     const [calls, messages, notes] = await Promise.all([
       this.prisma.call.findMany({ where: { leadId }, include: { caller: { select: { name: true } } }, orderBy: { startTime: 'desc' }, take: 100 }),
       this.prisma.message.findMany({ where: { leadId }, orderBy: { createdAt: 'desc' }, take: 100 }),
@@ -253,12 +255,85 @@ export class CommunicationsService {
     const items = [
       ...calls.map((c) => ({
         kind: 'call' as const, id: c.id, at: c.startTime, direction: c.direction, status: c.status,
-        durationSecs: c.durationSecs, recordingUrl: c.recordingUrl, transcript: c.transcript, aiSummary: c.aiSummary, by: c.caller?.name ?? null,
+        durationSecs: c.durationSecs,
+        recordingUrl: canViewRecordings ? c.recordingUrl : null,
+        transcript: canViewRecordings ? c.transcript : null,
+        aiSummary: canViewRecordings ? c.aiSummary : null,
+        by: c.caller?.name ?? null,
       })),
       ...messages.map((m) => ({ kind: 'message' as const, id: m.id, at: m.createdAt, direction: m.direction, body: m.body, status: m.status })),
       ...notes.map((n) => ({ kind: 'note' as const, id: n.id, at: n.createdAt, body: n.noteText, by: n.createdBy?.name ?? null })),
     ].sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
 
     return items;
+  }
+
+  // ── Incoming-call popup: most recent inbound call in the last 60s ──
+  async latestIncoming(userId: string, role: string) {
+    const since = new Date(Date.now() - 60_000);
+    const where: { direction: CommDirection; startTime: { gte: Date }; lead?: { assignedToId: string } } = {
+      direction: CommDirection.inbound,
+      startTime: { gte: since },
+    };
+    if (role === 'employee') where.lead = { assignedToId: userId }; // callers only see their own
+    const call = await this.prisma.call.findFirst({
+      where,
+      include: { lead: { select: { id: true, businessName: true, phone: true, city: true, state: true, status: true } } },
+      orderBy: { startTime: 'desc' },
+    });
+    if (!call) return null;
+    return { callId: call.id, at: call.startTime, status: call.status, lead: call.lead };
+  }
+
+  // ── Communication analytics ──
+  private periodStart(period: string): Date {
+    const now = new Date();
+    if (period === 'today') return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    if (period === 'month') return new Date(now.getTime() - 30 * 86400000);
+    if (period === 'all') return new Date(0);
+    return new Date(now.getTime() - 7 * 86400000); // default: week
+  }
+
+  async getAnalytics(period = 'week') {
+    const since = this.periodStart(period);
+    const [calls, messages] = await Promise.all([
+      this.prisma.call.findMany({ where: { startTime: { gte: since } }, select: { direction: true, status: true, durationSecs: true, startTime: true } }),
+      this.prisma.message.findMany({ where: { createdAt: { gte: since } }, select: { direction: true, createdAt: true } }),
+    ]);
+
+    const isMissed = (c: { status: string | null; direction: 'inbound' | 'outbound' | null; durationSecs: number | null }) =>
+      ['missed', 'no-answer', 'no_answer'].includes(c.status ?? '') || (c.direction === 'inbound' && c.durationSecs === 0);
+    const talk = calls.reduce((a, c) => a + (c.durationSecs ?? 0), 0);
+    const answered = calls.filter((c) => (c.durationSecs ?? 0) > 0).length;
+
+    // Per-day series across the period (cap 30 buckets).
+    const days = Math.min(30, Math.max(1, Math.ceil((Date.now() - since.getTime()) / 86400000)));
+    const series = Array.from({ length: days }, (_, i) => {
+      const d = new Date(Date.now() - (days - 1 - i) * 86400000);
+      const key = d.toISOString().slice(0, 10);
+      return {
+        date: key,
+        calls: calls.filter((c) => c.startTime.toISOString().slice(0, 10) === key).length,
+        messages: messages.filter((m) => m.createdAt.toISOString().slice(0, 10) === key).length,
+      };
+    });
+
+    return {
+      period,
+      calls: {
+        total: calls.length,
+        inbound: calls.filter((c) => c.direction === 'inbound').length,
+        outbound: calls.filter((c) => c.direction === 'outbound').length,
+        missed: calls.filter(isMissed).length,
+        avgDurationSecs: answered ? Math.round(talk / answered) : 0,
+        totalTalkSecs: talk,
+      },
+      messages: {
+        total: messages.length,
+        inbound: messages.filter((m) => m.direction === 'inbound').length,
+        outbound: messages.filter((m) => m.direction === 'outbound').length,
+      },
+      series,
+    };
   }
 }

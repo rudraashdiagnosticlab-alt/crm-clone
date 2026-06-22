@@ -6,6 +6,7 @@ import { useQuery } from '@tanstack/react-query';
 import { api, tokenStore } from '@/lib/api';
 import { Sidebar } from '@/components/sidebar';
 import { Topbar } from '@/components/topbar';
+import { IncomingCallPopup } from '@/components/incoming-call';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -36,6 +37,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <div className="mx-auto w-full max-w-[1500px] p-6">{children}</div>
         </main>
       </div>
+      <IncomingCallPopup />
     </div>
   );
 }

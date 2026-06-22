@@ -19,6 +19,7 @@ import {
   Shield,
   SlidersHorizontal,
   Settings,
+  MessageSquare,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -61,6 +62,7 @@ export const NAV: NavGroup[] = [
       { label: 'Call Queue', href: '/queue', icon: ListOrdered, sub: "Today's assignments" },
       { label: 'Assigned Calls', href: '/assigned', icon: PhoneForwarded, sub: 'Team assignments' },
       { label: 'Activity Tracker', href: '/activity', icon: NotebookPen, sub: 'Call activity log' },
+      { label: 'Communications', href: '/communications', icon: MessageSquare, sub: 'Calls & SMS analytics' },
     ],
   },
   {
