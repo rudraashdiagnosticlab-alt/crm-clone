@@ -5,6 +5,7 @@ import { LeadsService } from './leads.service';
 import { QuoService } from '../quo/quo.service';
 import { CreateLeadDto, ImportLeadsDto, ListLeadsQueryDto } from './dto/lead.dto';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator';
 
 @ApiTags('leads')
 @ApiBearerAuth()
@@ -30,14 +31,15 @@ export class LeadsController {
     return this.leads.bulkImport(dto);
   }
 
+  // Employees see only their assigned leads; admins/leaders see all.
   @Get()
-  findAll(@Query() query: ListLeadsQueryDto) {
-    return this.leads.findAll(query);
+  findAll(@Query() query: ListLeadsQueryDto, @CurrentUser() user: AuthUser) {
+    return this.leads.findAll(query, user);
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.leads.findOne(id);
+  findOne(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.leads.findOne(id, user);
   }
 
   // ── Quo integration ──

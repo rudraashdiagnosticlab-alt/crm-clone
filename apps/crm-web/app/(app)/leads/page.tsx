@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Upload, Download, Plus, Phone, Eye, Clock, MapPin, Building2, Filter, Target, Zap, Layers, Percent } from 'lucide-react';
 import { leadsApi, type CreateLeadInput, type Lead } from '@/lib/leads';
 import { metricsApi } from '@/lib/crm';
+import { api } from '@/lib/api';
 import { QuoStatusBadge } from '@/components/quo-status-badge';
 import { StatusPill } from '@/components/status-pill';
 import { PageHead, Avatar } from '@/components/page-head';
@@ -36,6 +37,8 @@ export default function LeadsPage() {
   const [q, setQ] = useState('');
 
   const { data: allLeads = [], isLoading } = useQuery({ queryKey: ['leads'], queryFn: leadsApi.list });
+  const { data: me } = useQuery({ queryKey: ['me'], queryFn: async () => (await api.get('/auth/me')).data, retry: false });
+  const canManage = me?.role === 'admin' || me?.role === 'team_leader';
 
   // States cascade from the selected timezone; cities from timezone + state.
   const stateOpts = optionsFrom(
@@ -118,9 +121,11 @@ export default function LeadsPage() {
   return (
     <div>
       <PageHead lead="Master database of all leads across territories and timezones.">
-        <button onClick={() => router.push('/import')} className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[13px] font-semibold hover:bg-muted">
-          <Upload className="h-4 w-4" /> Import CSV
-        </button>
+        {canManage && (
+          <button onClick={() => router.push('/import')} className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[13px] font-semibold hover:bg-muted">
+            <Upload className="h-4 w-4" /> Import CSV
+          </button>
+        )}
         <button
           onClick={() => downloadCsv(
             'leads',
@@ -132,9 +137,11 @@ export default function LeadsPage() {
         >
           <Download className="h-4 w-4" /> Export
         </button>
-        <button onClick={() => setShowForm((v) => !v)} className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[13px] font-semibold text-primary-foreground shadow-sm hover:opacity-90">
-          <Plus className="h-4 w-4" /> {showForm ? 'Close' : 'Add Lead'}
-        </button>
+        {canManage && (
+          <button onClick={() => setShowForm((v) => !v)} className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[13px] font-semibold text-primary-foreground shadow-sm hover:opacity-90">
+            <Plus className="h-4 w-4" /> {showForm ? 'Close' : 'Add Lead'}
+          </button>
+        )}
       </PageHead>
 
       {/* KPIs */}
@@ -155,7 +162,7 @@ export default function LeadsPage() {
       </div>
 
       {/* Create form */}
-      {showForm && (
+      {showForm && canManage && (
         <form
           onSubmit={(e) => { e.preventDefault(); create.mutate(); }}
           className="mb-[18px] grid grid-cols-1 gap-3 rounded-2xl border bg-card p-4 shadow-sm sm:grid-cols-2 lg:grid-cols-3"

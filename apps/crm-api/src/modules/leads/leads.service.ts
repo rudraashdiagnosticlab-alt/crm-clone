@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { Timezone, LeadStatus } from '@crm/database';
+import { Timezone, LeadStatus, Role } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CreateLeadDto, ImportLeadsDto, ListLeadsQueryDto } from './dto/lead.dto';
@@ -149,21 +149,27 @@ export class LeadsService {
     return { imported, skipped, errors, totalRows: dto.rows.length };
   }
 
-  async findAll(query: ListLeadsQueryDto) {
+  async findAll(query: ListLeadsQueryDto, user?: { id: string; role: Role }) {
+    // RBAC: employees only see leads assigned to them.
+    const scope = user?.role === Role.employee ? { assignedToId: user.id } : {};
     return this.prisma.lead.findMany({
-      where: { deletedAt: null, status: query.status, state: query.state },
+      where: { deletedAt: null, status: query.status, state: query.state, ...scope },
       orderBy: { createdAt: 'desc' },
       take: 100,
       include: { assignedTo: { select: { id: true, name: true, email: true } } },
     });
   }
 
-  async findOne(id: string) {
+  async findOne(id: string, user?: { id: string; role: Role }) {
     const lead = await this.prisma.lead.findFirst({
       where: { id, deletedAt: null },
       include: { assignedTo: { select: { id: true, name: true, email: true } } },
     });
     if (!lead) throw new NotFoundException('Lead not found');
+    // Employees may only open their own assigned leads.
+    if (user?.role === Role.employee && lead.assignedToId !== user.id) {
+      throw new NotFoundException('Lead not found');
+    }
     return lead;
   }
 }
