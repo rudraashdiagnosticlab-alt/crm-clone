@@ -150,6 +150,17 @@ model Lead {
   status       LeadStatus @default(new)
   qualityScore Int?       @map("quality_score") // AI lead score 0..100
 
+  // ── Lead sheet fields (import column set) ──
+  contactName      String?   @map("contact_name") // NAME — contact person at the company
+  industry         String? // INDUSTRY
+  title            String? // TITLE — contact's job title
+  vlc              String? // VLC
+  employeeCode     String?   @map("employee_code") // Employee Code
+  comments         String? // COMMENTS
+  leadCategory     String?   @map("lead_category") // LEAD CATEGORY
+  nextFollowUpDate DateTime? @map("next_follow_up_date") // NEXT FOLLOW UP DATE
+  // CALLER → assignedTo (User relation below)
+
   // ── Quo integration (see modules/quo) ──
   quoStatus     QuoSyncStatus @default(not_synced) @map("quo_status")
   quoExternalId String?       @map("quo_external_id") // id returned by Quo

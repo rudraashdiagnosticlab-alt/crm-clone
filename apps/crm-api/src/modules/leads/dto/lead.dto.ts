@@ -40,6 +40,52 @@ export class CreateLeadDto {
   @IsOptional()
   @IsEnum(LeadStatus)
   status?: LeadStatus;
+
+  // ── Lead sheet fields ──
+  @ApiPropertyOptional({ description: 'NAME — contact person at the company' })
+  @IsOptional()
+  @IsString()
+  contactName?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  industry?: string;
+
+  @ApiPropertyOptional({ description: "TITLE — contact's job title" })
+  @IsOptional()
+  @IsString()
+  title?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  vlc?: string;
+
+  @ApiPropertyOptional({ description: 'Employee Code' })
+  @IsOptional()
+  @IsString()
+  employeeCode?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  comments?: string;
+
+  @ApiPropertyOptional({ description: 'LEAD CATEGORY' })
+  @IsOptional()
+  @IsString()
+  leadCategory?: string;
+
+  @ApiPropertyOptional({ description: 'NEXT FOLLOW UP DATE (ISO string)' })
+  @IsOptional()
+  @IsString()
+  nextFollowUpDate?: string;
+
+  @ApiPropertyOptional({ description: 'CALLER — resolved to a user by name or email' })
+  @IsOptional()
+  @IsString()
+  caller?: string;
 }
 
 /** IMP-001/005 — bulk import. Rows are validated per-row in the service so a

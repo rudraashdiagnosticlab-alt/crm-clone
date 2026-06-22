@@ -6,37 +6,107 @@ import { Upload, Check } from 'lucide-react';
 import { importApi, type LeadRow } from '@/lib/crm';
 import { PageHead } from '@/components/page-head';
 
-const FIELD_ALIASES: Record<keyof LeadRow, string[]> = {
-  businessName: ['business name', 'businessname', 'business', 'company'],
-  phone: ['phone', 'phone number', 'mobile'],
-  email: ['email', 'e-mail'],
-  state: ['state'],
-  city: ['city'],
-  timezone: ['timezone', 'time zone', 'tz'],
+/**
+ * Canonical lead column order (matches the upload sheet). Drives parsing,
+ * the preview header, and the sample. `aliases` are matched case-insensitively
+ * against the file header so minor naming differences still map.
+ */
+const COLUMNS: { key: keyof LeadRow; label: string; aliases: string[] }[] = [
+  { key: 'phone', label: 'PHONE', aliases: ['phone', 'phone number', 'mobile'] },
+  { key: 'businessName', label: 'COMPANY NAME', aliases: ['company name', 'company', 'business name', 'businessname', 'business'] },
+  { key: 'contactName', label: 'NAME', aliases: ['name', 'contact', 'contact name'] },
+  { key: 'timezone', label: 'TIME ZONE', aliases: ['time zone', 'timezone', 'tz'] },
+  { key: 'email', label: 'EMAIL', aliases: ['email', 'e-mail'] },
+  { key: 'industry', label: 'INDUSTRY', aliases: ['industry'] },
+  { key: 'title', label: 'TITLE', aliases: ['title', 'job title'] },
+  { key: 'state', label: 'STATE', aliases: ['state'] },
+  { key: 'city', label: 'CITY', aliases: ['city'] },
+  { key: 'vlc', label: 'VLC', aliases: ['vlc'] },
+  { key: 'employeeCode', label: 'Employee Code', aliases: ['employee code', 'emp code', 'employeecode'] },
+  { key: 'caller', label: 'CALLER', aliases: ['caller', 'assigned to', 'agent'] },
+  { key: 'status', label: 'STATUS', aliases: ['status'] },
+  { key: 'comments', label: 'COMMENTS', aliases: ['comments', 'comment', 'remarks', 'notes'] },
+  { key: 'nextFollowUpDate', label: 'NEXT FOLLOW UP DATE', aliases: ['next follow up date', 'next followup date', 'next follow-up date', 'follow up date', 'followup date'] },
+  { key: 'leadCategory', label: 'LEAD CATEGORY', aliases: ['lead category', 'category'] },
+];
+
+const STATUS_MAP: Record<string, string> = {
+  new: 'new',
+  'in progress': 'in_progress',
+  in_progress: 'in_progress',
+  contacted: 'contacted',
+  interested: 'interested',
+  closed: 'closed',
+  'closed won': 'closed',
+  rejected: 'rejected',
 };
+const TIMEZONES = ['EST', 'CST', 'MST', 'PST'];
+
+/** Split one CSV line, respecting double-quoted fields (so commas inside
+ * COMMENTS don't break the row). Doubled quotes ("") become a literal quote. */
+function splitCsvLine(line: string): string[] {
+  const out: string[] = [];
+  let cur = '';
+  let inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQ) {
+      if (ch === '"') {
+        if (line[i + 1] === '"') { cur += '"'; i++; } else inQ = false;
+      } else cur += ch;
+    } else if (ch === '"') inQ = true;
+    else if (ch === ',') { out.push(cur); cur = ''; }
+    else cur += ch;
+  }
+  out.push(cur);
+  return out.map((c) => c.trim());
+}
+
+function normalize(key: keyof LeadRow, raw: string): string | undefined {
+  const v = raw.trim();
+  if (!v) return undefined;
+  if (key === 'timezone') { const u = v.toUpperCase(); return TIMEZONES.includes(u) ? u : undefined; }
+  if (key === 'status') return STATUS_MAP[v.toLowerCase()] ?? undefined;
+  return v;
+}
 
 function parseCsv(text: string): LeadRow[] {
-  const lines = text.trim().split(/\r?\n/).filter(Boolean);
+  const lines = text.trim().split(/\r?\n/).filter((l) => l.trim());
   if (lines.length < 2) return [];
-  const headers = lines[0].split(',').map((h) => h.trim().toLowerCase());
-  const idx = (f: keyof LeadRow) => headers.findIndex((h) => FIELD_ALIASES[f].includes(h));
-  const c = { businessName: idx('businessName'), phone: idx('phone'), email: idx('email'), state: idx('state'), city: idx('city'), timezone: idx('timezone') };
+  const headers = splitCsvLine(lines[0]).map((h) => h.toLowerCase());
+  const colIdx = COLUMNS.map((col) => headers.findIndex((h) => col.aliases.includes(h)));
+
   return lines.slice(1).map((line) => {
-    const cells = line.split(',').map((x) => x.trim());
+    const cells = splitCsvLine(line);
+    const row: Record<string, string | undefined> = {};
+    COLUMNS.forEach((col, ci) => {
+      const i = colIdx[ci];
+      row[col.key] = i >= 0 ? normalize(col.key, cells[i] ?? '') : undefined;
+    });
     return {
-      businessName: c.businessName >= 0 ? cells[c.businessName] : '',
-      phone: c.phone >= 0 ? cells[c.phone] : '',
-      email: c.email >= 0 ? cells[c.email] : undefined,
-      state: c.state >= 0 ? cells[c.state] : '',
-      city: c.city >= 0 ? cells[c.city] : '',
-      timezone: c.timezone >= 0 ? cells[c.timezone] : undefined,
+      businessName: row.businessName ?? '',
+      phone: row.phone ?? '',
+      email: row.email,
+      state: row.state ?? '',
+      city: row.city ?? '',
+      timezone: row.timezone,
+      status: row.status,
+      contactName: row.contactName,
+      industry: row.industry,
+      title: row.title,
+      vlc: row.vlc,
+      employeeCode: row.employeeCode,
+      comments: row.comments,
+      leadCategory: row.leadCategory,
+      nextFollowUpDate: row.nextFollowUpDate,
+      caller: row.caller,
     };
   });
 }
 
-const SAMPLE = `Business Name,Phone,Email,State,City,Timezone
-Acme Tax LLC,+13055551234,info@acme.com,Florida,Miami,EST
-Bay Books Inc,+14155559876,hi@baybooks.com,California,San Francisco,PST`;
+const SAMPLE = `${COLUMNS.map((c) => c.label).join(',')}
++13055551234,Acme Tax LLC,John Carter,EST,john@acme.com,Accounting,Owner,Florida,Miami,VLC-1,EMP-101,caller1@crm.local,New,"Interested, call back",2026-07-01,Hot
++14155559876,Bay Books Inc,Mia Wong,PST,mia@baybooks.com,Bookkeeping,CFO,California,San Francisco,VLC-2,EMP-102,caller2@crm.local,Contacted,Left voicemail,2026-07-03,Warm`;
 
 export default function ImportPage() {
   const [rows, setRows] = useState<LeadRow[]>([]);
@@ -47,7 +117,7 @@ export default function ImportPage() {
 
   return (
     <div>
-      <PageHead lead="Upload Excel/CSV (Business Name, Phone, Email, State, City, Timezone). Preview, then import with dedupe." />
+      <PageHead lead="Upload Excel/CSV using the standard lead columns. Preview, then import with dedupe." />
 
       <div className="grid gap-[18px] lg:grid-cols-2">
         <label className="flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-[#ccd3ba] bg-background p-[34px] text-center transition-colors hover:border-[#94ab68]">
@@ -61,7 +131,10 @@ export default function ImportPage() {
             <span className="text-[13px] font-semibold">Or paste CSV</span>
             <button onClick={() => load(SAMPLE)} className="text-[12px] font-semibold text-primary">Load sample</button>
           </div>
-          <textarea value={raw} onChange={(e) => load(e.target.value)} rows={6} placeholder="Business Name,Phone,Email,State,City,Timezone…" className="w-full rounded-md border bg-background px-3 py-2 font-mono text-xs" />
+          <textarea value={raw} onChange={(e) => load(e.target.value)} rows={6} placeholder="Paste rows with the standard lead columns…" className="w-full rounded-md border bg-background px-3 py-2 font-mono text-xs" />
+          <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+            Columns: {COLUMNS.map((c) => c.label).join(' · ')}
+          </p>
         </div>
       </div>
 
@@ -74,11 +147,13 @@ export default function ImportPage() {
             </button>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full text-[13px]">
-              <thead><tr className="border-b bg-background text-left text-[11px] uppercase tracking-[.06em] text-muted-foreground">{['Business', 'Phone', 'Email', 'State', 'City', 'TZ'].map((h) => <th key={h} className="px-4 py-2.5 font-semibold">{h}</th>)}</tr></thead>
+            <table className="w-full whitespace-nowrap text-[13px]">
+              <thead><tr className="border-b bg-background text-left text-[11px] uppercase tracking-[.06em] text-muted-foreground">{COLUMNS.map((c) => <th key={c.key} className="px-4 py-2.5 font-semibold">{c.label}</th>)}</tr></thead>
               <tbody>
                 {rows.slice(0, 10).map((r, i) => (
-                  <tr key={i} className="border-b last:border-0"><td className="px-4 py-2">{r.businessName}</td><td className="px-4 py-2 font-mono text-[12px]">{r.phone}</td><td className="px-4 py-2">{r.email}</td><td className="px-4 py-2">{r.state}</td><td className="px-4 py-2">{r.city}</td><td className="px-4 py-2">{r.timezone}</td></tr>
+                  <tr key={i} className="border-b last:border-0">
+                    {COLUMNS.map((c) => <td key={c.key} className="px-4 py-2 text-muted-foreground">{(r as unknown as Record<string, string | undefined>)[c.key] ?? '—'}</td>)}
+                  </tr>
                 ))}
               </tbody>
             </table>

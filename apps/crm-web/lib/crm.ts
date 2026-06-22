@@ -261,6 +261,17 @@ export interface LeadRow {
   state: string;
   city: string;
   timezone?: string;
+  status?: string;
+  // ── Lead sheet fields ──
+  contactName?: string;
+  industry?: string;
+  title?: string;
+  vlc?: string;
+  employeeCode?: string;
+  comments?: string;
+  leadCategory?: string;
+  nextFollowUpDate?: string;
+  caller?: string;
 }
 export const importApi = {
   bulk: async (rows: LeadRow[]): Promise<ImportResult> => (await api.post('/leads/import', { rows })).data,

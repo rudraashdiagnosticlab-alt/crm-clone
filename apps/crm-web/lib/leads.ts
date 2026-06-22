@@ -12,6 +12,16 @@ export interface Lead {
   city: string;
   timezone: string;
   status: string;
+  // ── Lead sheet fields ──
+  contactName: string | null;
+  industry: string | null;
+  title: string | null;
+  vlc: string | null;
+  employeeCode: string | null;
+  comments: string | null;
+  leadCategory: string | null;
+  nextFollowUpDate: string | null;
+  assignedTo: { id: string; name: string; email: string } | null;
   quoStatus: QuoStatus;
   quoExternalId: string | null;
   quoResponse: unknown;
@@ -38,6 +48,16 @@ export interface CreateLeadInput {
   state: string;
   city: string;
   timezone?: string;
+  // ── Lead sheet fields ──
+  contactName?: string;
+  industry?: string;
+  title?: string;
+  vlc?: string;
+  employeeCode?: string;
+  comments?: string;
+  leadCategory?: string;
+  nextFollowUpDate?: string;
+  caller?: string;
 }
 
 export const leadsApi = {

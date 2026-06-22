@@ -59,10 +59,16 @@ export default function LeadsPage() {
         l.phone.toLowerCase().includes(term) ||
         (l.email ?? '').toLowerCase().includes(term)),
   );
-  const { data: s } = useQuery({ queryKey: ['metrics', 'summary'], queryFn: metricsApi.summary, retry: false });
+  const { data: s } = useQuery({ queryKey: ['metrics', 'summary'], queryFn: () => metricsApi.summary(), retry: false });
 
   const create = useMutation({
-    mutationFn: () => leadsApi.create({ ...form, email: form.email || undefined }),
+    // Drop empty optional strings so they persist as null rather than "".
+    mutationFn: () => {
+      const cleaned = Object.fromEntries(
+        Object.entries(form).map(([k, v]) => [k, typeof v === 'string' && v.trim() === '' ? undefined : v]),
+      ) as CreateLeadInput;
+      return leadsApi.create({ ...cleaned, businessName: form.businessName, phone: form.phone, state: form.state, city: form.city });
+    },
     onSuccess: (lead) => {
       qc.invalidateQueries({ queryKey: ['leads'] });
       router.push(`/leads/${lead.id}`);
@@ -76,7 +82,11 @@ export default function LeadsPage() {
           <Upload className="h-4 w-4" /> Import CSV
         </button>
         <button
-          onClick={() => downloadCsv('leads', ['Lead ID', 'Business', 'Phone', 'Email', 'City', 'State', 'Timezone', 'Status'], leads.map((l) => [l.leadId, l.businessName, l.phone, l.email ?? '', l.city, l.state, l.timezone, l.status]))}
+          onClick={() => downloadCsv(
+            'leads',
+            ['PHONE', 'COMPANY NAME', 'NAME', 'TIME ZONE', 'EMAIL', 'INDUSTRY', 'TITLE', 'STATE', 'CITY', 'VLC', 'Employee Code', 'CALLER', 'STATUS', 'COMMENTS', 'NEXT FOLLOW UP DATE', 'LEAD CATEGORY'],
+            leads.map((l) => [l.phone, l.businessName, l.contactName ?? '', l.timezone, l.email ?? '', l.industry ?? '', l.title ?? '', l.state, l.city, l.vlc ?? '', l.employeeCode ?? '', l.assignedTo?.name ?? '', l.status, l.comments ?? '', l.nextFollowUpDate ? new Date(l.nextFollowUpDate).toLocaleDateString() : '', l.leadCategory ?? '']),
+          )}
           disabled={leads.length === 0}
           className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[13px] font-semibold hover:bg-muted disabled:opacity-50"
         >
@@ -110,10 +120,15 @@ export default function LeadsPage() {
           onSubmit={(e) => { e.preventDefault(); create.mutate(); }}
           className="mb-[18px] grid grid-cols-1 gap-3 rounded-2xl border bg-card p-4 shadow-sm sm:grid-cols-2 lg:grid-cols-3"
         >
-          {([['businessName', 'Business Name *'], ['phone', 'Phone *'], ['email', 'Email'], ['state', 'State *'], ['city', 'City *']] as const).map(([key, label]) => (
+          {([
+            ['businessName', 'Company Name *'], ['phone', 'Phone *'], ['contactName', 'Name'],
+            ['email', 'Email'], ['industry', 'Industry'], ['title', 'Title'],
+            ['state', 'State *'], ['city', 'City *'], ['vlc', 'VLC'],
+            ['employeeCode', 'Employee Code'], ['caller', 'Caller (name/email)'], ['leadCategory', 'Lead Category'],
+          ] as const).map(([key, label]) => (
             <label key={key} className="space-y-1 text-sm">
               <span className="font-medium">{label}</span>
-              <input value={(form as any)[key]} onChange={(e) => setForm({ ...form, [key]: e.target.value })} required={label.includes('*')} className="w-full rounded-md border bg-background px-3 py-2" />
+              <input value={(form as any)[key] ?? ''} onChange={(e) => setForm({ ...form, [key]: e.target.value })} required={label.includes('*')} className="w-full rounded-md border bg-background px-3 py-2" />
             </label>
           ))}
           <label className="space-y-1 text-sm">
@@ -121,6 +136,14 @@ export default function LeadsPage() {
             <select value={form.timezone} onChange={(e) => setForm({ ...form, timezone: e.target.value })} className="w-full rounded-md border bg-background px-3 py-2">
               {['EST', 'CST', 'MST', 'PST'].map((t) => <option key={t}>{t}</option>)}
             </select>
+          </label>
+          <label className="space-y-1 text-sm">
+            <span className="font-medium">Next Follow-up Date</span>
+            <input type="date" value={form.nextFollowUpDate ?? ''} onChange={(e) => setForm({ ...form, nextFollowUpDate: e.target.value })} className="w-full rounded-md border bg-background px-3 py-2" />
+          </label>
+          <label className="col-span-full space-y-1 text-sm">
+            <span className="font-medium">Comments</span>
+            <textarea value={form.comments ?? ''} onChange={(e) => setForm({ ...form, comments: e.target.value })} rows={2} className="w-full rounded-md border bg-background px-3 py-2" />
           </label>
           <div className="col-span-full flex items-center gap-3">
             <button type="submit" disabled={create.isPending} className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60">
@@ -140,21 +163,17 @@ export default function LeadsPage() {
           </div>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-[13px]">
+          <table className="w-full whitespace-nowrap text-[13px]">
             <thead>
               <tr className="border-b bg-background text-left text-[11px] uppercase tracking-[.06em] text-muted-foreground">
-                <th className="px-4 py-[11px] font-semibold">Lead</th>
-                <th className="px-4 py-[11px] font-semibold">Contact</th>
-                <th className="px-4 py-[11px] font-semibold">Location</th>
-                <th className="px-4 py-[11px] font-semibold">TZ</th>
-                <th className="px-4 py-[11px] font-semibold">Status</th>
-                <th className="px-4 py-[11px] font-semibold">Quo</th>
-                <th className="px-4 py-[11px] font-semibold"></th>
+                {['Lead', 'Phone', 'Name', 'TZ', 'Email', 'Industry', 'Title', 'Location', 'VLC', 'Emp Code', 'Caller', 'Status', 'Comments', 'Follow-up', 'Category', 'Quo', ''].map((h, i) => (
+                  <th key={i} className="px-4 py-[11px] font-semibold">{h}</th>
+                ))}
               </tr>
             </thead>
             <tbody>
-              {isLoading && <tr><td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">Loading…</td></tr>}
-              {!isLoading && leads.length === 0 && <tr><td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">{allLeads.length === 0 ? 'No leads yet — add one above.' : 'No leads match the current filters.'}</td></tr>}
+              {isLoading && <tr><td colSpan={17} className="px-4 py-8 text-center text-muted-foreground">Loading…</td></tr>}
+              {!isLoading && leads.length === 0 && <tr><td colSpan={17} className="px-4 py-8 text-center text-muted-foreground">{allLeads.length === 0 ? 'No leads yet — add one above.' : 'No leads match the current filters.'}</td></tr>}
               {leads.map((l) => (
                 <tr key={l.id} className="group border-b last:border-0 hover:bg-muted/50">
                   <td className="px-4 py-3">
@@ -167,9 +186,19 @@ export default function LeadsPage() {
                     </div>
                   </td>
                   <td className="px-4 py-3 font-mono text-[12px] text-muted-foreground">{l.phone}</td>
-                  <td className="px-4 py-3">{l.city}, {l.state}</td>
+                  <td className="px-4 py-3">{l.contactName ?? '—'}</td>
                   <td className="px-4 py-3"><span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold">{l.timezone}</span></td>
+                  <td className="px-4 py-3 text-muted-foreground">{l.email ?? '—'}</td>
+                  <td className="px-4 py-3 text-muted-foreground">{l.industry ?? '—'}</td>
+                  <td className="px-4 py-3 text-muted-foreground">{l.title ?? '—'}</td>
+                  <td className="px-4 py-3">{l.city}, {l.state}</td>
+                  <td className="px-4 py-3 text-muted-foreground">{l.vlc ?? '—'}</td>
+                  <td className="px-4 py-3 font-mono text-[12px] text-muted-foreground">{l.employeeCode ?? '—'}</td>
+                  <td className="px-4 py-3">{l.assignedTo?.name ?? '—'}</td>
                   <td className="px-4 py-3"><StatusPill status={l.status} /></td>
+                  <td className="max-w-[220px] truncate px-4 py-3 text-muted-foreground" title={l.comments ?? ''}>{l.comments ?? '—'}</td>
+                  <td className="px-4 py-3 text-muted-foreground">{l.nextFollowUpDate ? new Date(l.nextFollowUpDate).toLocaleDateString() : '—'}</td>
+                  <td className="px-4 py-3">{l.leadCategory ?? '—'}</td>
                   <td className="px-4 py-3"><QuoStatusBadge status={l.quoStatus} /></td>
                   <td className="px-4 py-3">
                     <div className="flex gap-1.5 opacity-50 transition-opacity group-hover:opacity-100">
