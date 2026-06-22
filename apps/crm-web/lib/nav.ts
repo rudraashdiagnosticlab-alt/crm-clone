@@ -68,7 +68,7 @@ export const NAV: NavGroup[] = [
       { label: 'Calling Panel', href: '/calling', icon: PhoneCall, sub: 'Dialer workspace' },
       { label: 'Call Queue', href: '/queue', icon: ListOrdered, sub: "Today's assignments" },
       { label: 'Assigned Calls', href: '/assigned', icon: PhoneForwarded, sub: 'Team assignments', roles: MANAGERS },
-      { label: 'Activity Tracker', href: '/activity', icon: NotebookPen, sub: 'Call activity log', roles: MANAGERS },
+      { label: 'Activity Tracker', href: '/activity', icon: NotebookPen, sub: 'Call activity log' },
       { label: 'Communications', href: '/communications', icon: MessageSquare, sub: 'Calls & SMS analytics', roles: MANAGERS },
     ],
   },
