@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { Calendar, Plus, Clock, RefreshCw, CheckCircle2, AlertTriangle, Phone, Filter } from 'lucide-react';
@@ -8,6 +8,7 @@ import { callsApi, type Followup } from '@/lib/crm';
 import { PageHead, Avatar } from '@/components/page-head';
 import { KpiCard } from '@/components/dashboard/kpi-card';
 import { FilterSelect, SearchInput } from '@/components/filter-controls';
+import { DataTable, type ColumnDef } from '@/components/data-table';
 
 const TIMEFRAME_OPTS = [
   { label: 'All Follow-Ups', value: '' },
@@ -56,6 +57,17 @@ export default function FollowupsPage() {
         (f.noteText ?? '').toLowerCase().includes(term)),
   );
 
+  const columns = useMemo<ColumnDef<Followup>[]>(() => [
+    {
+      key: 'when', header: 'When', required: true,
+      render: (f) => { const w = whenLabel(f.nextFollowupDate); return <div className="flex items-center gap-2"><span className="h-2 w-2 rounded-full" style={{ background: w.overdue ? '#a8431f' : w.today ? '#c98a18' : '#94ab68' }} /><b>{w.text}</b></div>; },
+    },
+    { key: 'company', header: 'Company', render: (f) => <div className="flex items-center gap-[10px]"><Avatar name={f.lead?.businessName ?? '—'} /><span className="font-semibold">{f.lead?.businessName ?? '—'}</span></div> },
+    { key: 'note', header: 'Note', cellClassName: 'max-w-[280px] truncate text-muted-foreground', render: (f) => f.noteText },
+    { key: 'phone', header: 'Phone', cellClassName: 'font-mono text-[12px]', render: (f) => f.lead?.phone ?? '—' },
+    { key: 'actions', header: '', required: true, render: () => <button onClick={() => router.push('/calling')} className="grid h-[30px] w-[30px] place-items-center rounded-lg border opacity-50 transition-opacity hover:bg-primary hover:text-primary-foreground group-hover:opacity-100"><Phone className="h-[15px] w-[15px]" /></button> },
+  ], [router]);
+
   return (
     <div>
       <PageHead lead="Scheduled callbacks and follow-up reminders from call notes, sorted by due time.">
@@ -70,44 +82,22 @@ export default function FollowupsPage() {
         <KpiCard icon={AlertTriangle} iconBg="#fbeeec" iconColor="#a8431f" value={overdue} label="Overdue" />
       </div>
 
-      <div className="overflow-hidden rounded-2xl border bg-card shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-2.5 border-b px-[18px] py-4">
-          <div><h3 className="font-display text-[15px] font-semibold">Upcoming Follow-Ups</h3><div className="text-xs text-muted-foreground">{fus.length} shown</div></div>
-          <div className="flex flex-wrap items-center gap-2.5">
+      <DataTable
+        tableKey="followups"
+        columns={columns}
+        rows={fus}
+        getRowKey={(f) => f.id}
+        title="Upcoming Follow-Ups"
+        subtitle={`${fus.length} shown`}
+        loading={isLoading}
+        emptyText={allFus.length === 0 ? 'No follow-ups scheduled. Set a follow-up date when saving a call note.' : 'No follow-ups match the current filters.'}
+        toolbar={
+          <>
             <SearchInput value={q} onChange={setQ} placeholder="Search company, phone, note…" className="min-w-[220px]" />
             <FilterSelect icon={Filter} value={timeframe} onChange={setTimeframe} options={TIMEFRAME_OPTS} />
-          </div>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-[13px]">
-            <thead>
-              <tr className="border-b bg-background text-left text-[11px] uppercase tracking-[.06em] text-muted-foreground">
-                <th className="px-4 py-[11px] font-semibold">When</th>
-                <th className="px-4 py-[11px] font-semibold">Company</th>
-                <th className="px-4 py-[11px] font-semibold">Note</th>
-                <th className="px-4 py-[11px] font-semibold">Phone</th>
-                <th className="px-4 py-[11px] font-semibold"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {isLoading && <tr><td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">Loading…</td></tr>}
-              {!isLoading && fus.length === 0 && <tr><td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">{allFus.length === 0 ? 'No follow-ups scheduled. Set a follow-up date when saving a call note.' : 'No follow-ups match the current filters.'}</td></tr>}
-              {fus.map((f: Followup) => {
-                const w = whenLabel(f.nextFollowupDate);
-                return (
-                  <tr key={f.id} className="group border-b last:border-0 hover:bg-muted/50">
-                    <td className="px-4 py-3"><div className="flex items-center gap-2"><span className="h-2 w-2 rounded-full" style={{ background: w.overdue ? '#a8431f' : w.today ? '#c98a18' : '#94ab68' }} /><b>{w.text}</b></div></td>
-                    <td className="px-4 py-3"><div className="flex items-center gap-[10px]"><Avatar name={f.lead?.businessName ?? '—'} /><span className="font-semibold">{f.lead?.businessName ?? '—'}</span></div></td>
-                    <td className="max-w-[280px] truncate px-4 py-3 text-muted-foreground">{f.noteText}</td>
-                    <td className="px-4 py-3 font-mono text-[12px]">{f.lead?.phone ?? '—'}</td>
-                    <td className="px-4 py-3"><button onClick={() => router.push('/calling')} className="grid h-[30px] w-[30px] place-items-center rounded-lg border opacity-50 transition-opacity hover:bg-primary hover:text-primary-foreground group-hover:opacity-100"><Phone className="h-[15px] w-[15px]" /></button></td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
+          </>
+        }
+      />
     </div>
   );
 }

@@ -1,14 +1,16 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { ListOrdered, CheckCircle2, Clock, Percent, Play, Phone, Filter, MapPin, Building2 } from 'lucide-react';
 import { callsApi, formatDuration } from '@/lib/crm';
+import { type Lead } from '@/lib/leads';
 import { PageHead } from '@/components/page-head';
 import { StatusPill } from '@/components/status-pill';
 import { KpiCard } from '@/components/dashboard/kpi-card';
 import { FilterSelect, SearchInput, optionsFrom } from '@/components/filter-controls';
+import { DataTable, type ColumnDef } from '@/components/data-table';
 
 const STATUS_OPTS = [
   { label: 'All Statuses', value: '' },
@@ -53,6 +55,18 @@ export default function QueuePage() {
         l.state.toLowerCase().includes(term)),
   );
 
+  const columns = useMemo<ColumnDef<Lead>[]>(() => [
+    {
+      key: 'num', header: '#', required: true,
+      render: (l, i) => { const done = l.status === 'closed' || l.status === 'rejected'; return <div className="grid h-6 w-6 place-items-center rounded-[7px] bg-[#e7eed8] text-[11px] font-bold text-[#42512f]">{done ? '✓' : i + 1}</div>; },
+    },
+    { key: 'company', header: 'Company', cellClassName: 'font-semibold', render: (l) => l.businessName },
+    { key: 'phone', header: 'Phone', cellClassName: 'font-mono text-[12px]', render: (l) => l.phone },
+    { key: 'location', header: 'Location', render: (l) => `${l.city}, ${l.state} · ${l.timezone}` },
+    { key: 'status', header: 'Status', render: (l) => <StatusPill status={l.status} /> },
+    { key: 'actions', header: '', required: true, render: () => <button onClick={() => router.push('/calling')} className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-[12px] font-semibold text-primary-foreground"><Phone className="h-3.5 w-3.5" /> Call</button> },
+  ], [router]);
+
   return (
     <div>
       <PageHead lead="Your daily call queue. Auto-next opens the following lead when a call ends.">
@@ -66,48 +80,24 @@ export default function QueuePage() {
         <KpiCard icon={Percent} iconBg="#e3f1ee" iconColor="#2f6f63" value={formatDuration(dash?.avgCallSecs ?? 0)} label="Avg Call Time" />
       </div>
 
-      <div className="overflow-hidden rounded-2xl border bg-card shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-2.5 border-b px-[18px] py-4">
-          <div><h3 className="font-display text-[15px] font-semibold">Call Queue</h3><div className="text-xs text-muted-foreground">{leads.length} of {allLeads.length} · today&apos;s assignments</div></div>
-          <div className="flex flex-wrap items-center gap-2.5">
+      <DataTable
+        tableKey="queue"
+        columns={columns}
+        rows={leads}
+        getRowKey={(l) => l.id}
+        title="Call Queue"
+        subtitle={`${leads.length} of ${allLeads.length} · today's assignments`}
+        emptyText={allLeads.length === 0 ? 'No leads in queue.' : 'No leads match the current filters.'}
+        toolbar={
+          <>
             <SearchInput value={q} onChange={setQ} placeholder="Search company, phone, location…" className="min-w-[220px]" />
             <FilterSelect icon={Clock} value={tz} onChange={(v) => { setTz(v); setState(''); setCity(''); }} options={tzOpts} />
             <FilterSelect icon={MapPin} value={state} onChange={(v) => { setState(v); setCity(''); }} options={stateOpts} />
             <FilterSelect icon={Building2} value={city} onChange={setCity} options={cityOpts} />
             <FilterSelect icon={Filter} value={status} onChange={setStatus} options={STATUS_OPTS} />
-          </div>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-[13px]">
-            <thead>
-              <tr className="border-b bg-background text-left text-[11px] uppercase tracking-[.06em] text-muted-foreground">
-                <th className="px-4 py-[11px] font-semibold">#</th>
-                <th className="px-4 py-[11px] font-semibold">Company</th>
-                <th className="px-4 py-[11px] font-semibold">Phone</th>
-                <th className="px-4 py-[11px] font-semibold">Location</th>
-                <th className="px-4 py-[11px] font-semibold">Status</th>
-                <th className="px-4 py-[11px] font-semibold"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {leads.map((q, i) => {
-                const done = q.status === 'closed' || q.status === 'rejected';
-                return (
-                  <tr key={q.id} className="border-b last:border-0 hover:bg-muted/50">
-                    <td className="px-4 py-3"><div className="grid h-6 w-6 place-items-center rounded-[7px] bg-[#e7eed8] text-[11px] font-bold text-[#42512f]">{done ? '✓' : i + 1}</div></td>
-                    <td className="px-4 py-3 font-semibold">{q.businessName}</td>
-                    <td className="px-4 py-3 font-mono text-[12px]">{q.phone}</td>
-                    <td className="px-4 py-3">{q.city}, {q.state} · {q.timezone}</td>
-                    <td className="px-4 py-3"><StatusPill status={q.status} /></td>
-                    <td className="px-4 py-3"><button onClick={() => router.push('/calling')} className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-[12px] font-semibold text-primary-foreground"><Phone className="h-3.5 w-3.5" /> Call</button></td>
-                  </tr>
-                );
-              })}
-              {leads.length === 0 && <tr><td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">{allLeads.length === 0 ? 'No leads in queue.' : 'No leads match the current filters.'}</td></tr>}
-            </tbody>
-          </table>
-        </div>
-      </div>
+          </>
+        }
+      />
     </div>
   );
 }

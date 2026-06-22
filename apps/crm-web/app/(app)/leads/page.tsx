@@ -1,16 +1,17 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Upload, Download, Plus, Phone, Eye, Clock, MapPin, Building2, Filter, Target, Zap, Layers, Percent } from 'lucide-react';
-import { leadsApi, type CreateLeadInput } from '@/lib/leads';
+import { leadsApi, type CreateLeadInput, type Lead } from '@/lib/leads';
 import { metricsApi } from '@/lib/crm';
 import { QuoStatusBadge } from '@/components/quo-status-badge';
 import { StatusPill } from '@/components/status-pill';
 import { PageHead, Avatar } from '@/components/page-head';
 import { KpiCard } from '@/components/dashboard/kpi-card';
 import { FilterSelect, SearchInput, optionsFrom } from '@/components/filter-controls';
+import { DataTable, type ColumnDef } from '@/components/data-table';
 import { downloadCsv } from '@/lib/export';
 
 const EMPTY: CreateLeadInput = { businessName: '', phone: '', email: '', state: '', city: '', timezone: 'EST' };
@@ -74,6 +75,45 @@ export default function LeadsPage() {
       router.push(`/leads/${lead.id}`);
     },
   });
+
+  const columns = useMemo<ColumnDef<Lead>[]>(() => [
+    {
+      key: 'lead', header: 'Lead', required: true,
+      render: (l) => (
+        <div className="flex items-center gap-[10px]">
+          <Avatar name={l.businessName} />
+          <div>
+            <div className="font-semibold text-foreground">{l.businessName}</div>
+            <div className="font-mono text-[11.5px] text-muted-foreground">{l.leadId}</div>
+          </div>
+        </div>
+      ),
+    },
+    { key: 'phone', header: 'Phone', cellClassName: 'font-mono text-[12px] text-muted-foreground', render: (l) => l.phone },
+    { key: 'name', header: 'Name', render: (l) => l.contactName ?? '—' },
+    { key: 'tz', header: 'TZ', render: (l) => <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold">{l.timezone}</span> },
+    { key: 'email', header: 'Email', cellClassName: 'text-muted-foreground', render: (l) => l.email ?? '—' },
+    { key: 'industry', header: 'Industry', cellClassName: 'text-muted-foreground', render: (l) => l.industry ?? '—' },
+    { key: 'title', header: 'Title', cellClassName: 'text-muted-foreground', render: (l) => l.title ?? '—' },
+    { key: 'location', header: 'Location', render: (l) => `${l.city}, ${l.state}` },
+    { key: 'vlc', header: 'VLC', cellClassName: 'text-muted-foreground', render: (l) => l.vlc ?? '—' },
+    { key: 'empCode', header: 'Emp Code', cellClassName: 'font-mono text-[12px] text-muted-foreground', render: (l) => l.employeeCode ?? '—' },
+    { key: 'caller', header: 'Caller', render: (l) => l.assignedTo?.name ?? '—' },
+    { key: 'status', header: 'Status', render: (l) => <StatusPill status={l.status} /> },
+    { key: 'comments', header: 'Comments', cellClassName: 'max-w-[220px] truncate text-muted-foreground', render: (l) => <span title={l.comments ?? ''}>{l.comments ?? '—'}</span> },
+    { key: 'followup', header: 'Follow-up', cellClassName: 'text-muted-foreground', render: (l) => l.nextFollowUpDate ? new Date(l.nextFollowUpDate).toLocaleDateString() : '—' },
+    { key: 'category', header: 'Category', render: (l) => l.leadCategory ?? '—' },
+    { key: 'quo', header: 'Quo', render: (l) => <QuoStatusBadge status={l.quoStatus} /> },
+    {
+      key: 'actions', header: '', required: true,
+      render: (l) => (
+        <div className="flex gap-1.5 opacity-50 transition-opacity group-hover:opacity-100">
+          <button onClick={() => router.push('/calling')} title="Call" className="grid h-[30px] w-[30px] place-items-center rounded-lg border text-[#333f25] hover:bg-primary hover:text-primary-foreground dark:text-foreground"><Phone className="h-[15px] w-[15px]" /></button>
+          <button onClick={() => router.push(`/leads/${l.id}`)} title="View" className="grid h-[30px] w-[30px] place-items-center rounded-lg border text-[#333f25] hover:bg-primary hover:text-primary-foreground dark:text-foreground"><Eye className="h-[15px] w-[15px]" /></button>
+        </div>
+      ),
+    },
+  ], [router]);
 
   return (
     <div>
@@ -155,63 +195,16 @@ export default function LeadsPage() {
       )}
 
       {/* Table */}
-      <div className="overflow-hidden rounded-2xl border bg-card shadow-sm">
-        <div className="flex items-center justify-between border-b px-[18px] py-4">
-          <div>
-            <h3 className="font-display text-[15px] font-semibold">All Leads</h3>
-            <div className="text-xs text-muted-foreground">{leads.length} shown</div>
-          </div>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full whitespace-nowrap text-[13px]">
-            <thead>
-              <tr className="border-b bg-background text-left text-[11px] uppercase tracking-[.06em] text-muted-foreground">
-                {['Lead', 'Phone', 'Name', 'TZ', 'Email', 'Industry', 'Title', 'Location', 'VLC', 'Emp Code', 'Caller', 'Status', 'Comments', 'Follow-up', 'Category', 'Quo', ''].map((h, i) => (
-                  <th key={i} className="px-4 py-[11px] font-semibold">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {isLoading && <tr><td colSpan={17} className="px-4 py-8 text-center text-muted-foreground">Loading…</td></tr>}
-              {!isLoading && leads.length === 0 && <tr><td colSpan={17} className="px-4 py-8 text-center text-muted-foreground">{allLeads.length === 0 ? 'No leads yet — add one above.' : 'No leads match the current filters.'}</td></tr>}
-              {leads.map((l) => (
-                <tr key={l.id} className="group border-b last:border-0 hover:bg-muted/50">
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-[10px]">
-                      <Avatar name={l.businessName} />
-                      <div>
-                        <div className="font-semibold text-foreground">{l.businessName}</div>
-                        <div className="font-mono text-[11.5px] text-muted-foreground">{l.leadId}</div>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 font-mono text-[12px] text-muted-foreground">{l.phone}</td>
-                  <td className="px-4 py-3">{l.contactName ?? '—'}</td>
-                  <td className="px-4 py-3"><span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold">{l.timezone}</span></td>
-                  <td className="px-4 py-3 text-muted-foreground">{l.email ?? '—'}</td>
-                  <td className="px-4 py-3 text-muted-foreground">{l.industry ?? '—'}</td>
-                  <td className="px-4 py-3 text-muted-foreground">{l.title ?? '—'}</td>
-                  <td className="px-4 py-3">{l.city}, {l.state}</td>
-                  <td className="px-4 py-3 text-muted-foreground">{l.vlc ?? '—'}</td>
-                  <td className="px-4 py-3 font-mono text-[12px] text-muted-foreground">{l.employeeCode ?? '—'}</td>
-                  <td className="px-4 py-3">{l.assignedTo?.name ?? '—'}</td>
-                  <td className="px-4 py-3"><StatusPill status={l.status} /></td>
-                  <td className="max-w-[220px] truncate px-4 py-3 text-muted-foreground" title={l.comments ?? ''}>{l.comments ?? '—'}</td>
-                  <td className="px-4 py-3 text-muted-foreground">{l.nextFollowUpDate ? new Date(l.nextFollowUpDate).toLocaleDateString() : '—'}</td>
-                  <td className="px-4 py-3">{l.leadCategory ?? '—'}</td>
-                  <td className="px-4 py-3"><QuoStatusBadge status={l.quoStatus} /></td>
-                  <td className="px-4 py-3">
-                    <div className="flex gap-1.5 opacity-50 transition-opacity group-hover:opacity-100">
-                      <button onClick={() => router.push('/calling')} title="Call" className="grid h-[30px] w-[30px] place-items-center rounded-lg border text-[#333f25] hover:bg-primary hover:text-primary-foreground dark:text-foreground"><Phone className="h-[15px] w-[15px]" /></button>
-                      <button onClick={() => router.push(`/leads/${l.id}`)} title="View" className="grid h-[30px] w-[30px] place-items-center rounded-lg border text-[#333f25] hover:bg-primary hover:text-primary-foreground dark:text-foreground"><Eye className="h-[15px] w-[15px]" /></button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <DataTable
+        tableKey="leads"
+        columns={columns}
+        rows={leads}
+        getRowKey={(l) => l.id}
+        title="All Leads"
+        subtitle={`${leads.length} shown`}
+        loading={isLoading}
+        emptyText={allLeads.length === 0 ? 'No leads yet — add one above.' : 'No leads match the current filters.'}
+      />
     </div>
   );
 }
