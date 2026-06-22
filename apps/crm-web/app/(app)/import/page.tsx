@@ -71,11 +71,19 @@ function normalize(key: keyof LeadRow, raw: string): string | undefined {
   return v;
 }
 
+// Header matching is by NAME, not position — columns can be in any order.
+// Normalize away case, spaces, and separators so "COMPANY NAME", "company_name",
+// "Company-Name" and "companyname" all map to the same column.
+const normHeader = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+
 function parseCsv(text: string): LeadRow[] {
   const lines = text.trim().split(/\r?\n/).filter((l) => l.trim());
   if (lines.length < 2) return [];
-  const headers = splitCsvLine(lines[0]).map((h) => h.toLowerCase());
-  const colIdx = COLUMNS.map((col) => headers.findIndex((h) => col.aliases.includes(h)));
+  const headers = splitCsvLine(lines[0]).map(normHeader);
+  const colIdx = COLUMNS.map((col) => {
+    const aliases = col.aliases.map(normHeader);
+    return headers.findIndex((h) => h !== '' && aliases.includes(h));
+  });
 
   return lines.slice(1).map((line) => {
     const cells = splitCsvLine(line);
