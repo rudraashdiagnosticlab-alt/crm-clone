@@ -1,15 +1,13 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { Plus, Users, Shield, UserCheck, Phone, Check, Pencil, Filter } from 'lucide-react';
-import { api } from '@/lib/api';
+import { useMemo, useRef, useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Plus, Users, Shield, UserCheck, Phone, Check, Pencil, Filter, X, Ban, RotateCcw } from 'lucide-react';
+import { usersApi, type User, type UserRole } from '@/lib/users';
 import { PageHead, Avatar } from '@/components/page-head';
 import { KpiCard } from '@/components/dashboard/kpi-card';
 import { FilterSelect, SearchInput } from '@/components/filter-controls';
 import { DataTable, type ColumnDef } from '@/components/data-table';
-
-interface User { id: string; name: string; email: string; role: 'admin' | 'team_leader' | 'employee'; isActive: boolean; createdAt: string }
 
 const ROLE_META: Record<string, { label: string; cls: string; desc: string; perms: string[] }> = {
   admin: { label: 'Admin', cls: 'bg-[#f7e3da] text-[#a8431f]', desc: 'Full access to all modules, data, settings, and user management.', perms: ['All modules & settings', 'User management', 'Recordings & exports', 'System configuration'] },
@@ -23,12 +21,31 @@ const ROLE_OPTS = [
   { label: 'Team Leader', value: 'team_leader' },
   { label: 'Sales Caller', value: 'employee' },
 ];
+const ROLE_SELECT: { label: string; value: UserRole }[] = [
+  { label: 'Admin', value: 'admin' },
+  { label: 'Team Leader', value: 'team_leader' },
+  { label: 'Sales Caller', value: 'employee' },
+];
 
 export default function UsersPage() {
-  const { data: users = [] } = useQuery<User[]>({ queryKey: ['users'], queryFn: async () => (await api.get('/users')).data, retry: false });
+  const qc = useQueryClient();
+  const { data: users = [] } = useQuery<User[]>({ queryKey: ['users'], queryFn: usersApi.list, retry: false });
   const [role, setRole] = useState('');
   const [q, setQ] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [editing, setEditing] = useState<User | null>(null);
   const count = (r: string) => users.filter((u) => u.role === r).length;
+
+  const toggleActive = useMutation({
+    mutationFn: (u: User) => usersApi.update(u.id, { isActive: !u.isActive }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['users'] }),
+  });
+
+  // Refs keep the column defs stable while still calling the latest handlers.
+  const editRef = useRef<(u: User) => void>(() => {});
+  const toggleRef = useRef<(u: User) => void>(() => {});
+  editRef.current = (u) => setEditing(u);
+  toggleRef.current = (u) => toggleActive.mutate(u);
 
   const term = q.trim().toLowerCase();
   const shown = users.filter(
@@ -45,13 +62,23 @@ export default function UsersPage() {
     { key: 'role', header: 'Role', render: (u) => <span className={`rounded-full px-2.5 py-[3px] text-[11.5px] font-bold ${ROLE_META[u.role].cls}`}>{ROLE_META[u.role].label}</span> },
     { key: 'status', header: 'Status', render: (u) => <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-[3px] text-[11.5px] font-semibold ${u.isActive ? 'bg-[#e7eed8] text-[#42512f]' : 'bg-[#e7f0f8] text-[#2c5d8f]'}`}><span className="h-1.5 w-1.5 rounded-full" style={{ background: 'currentColor' }} />{u.isActive ? 'Active' : 'Inactive'}</span> },
     { key: 'created', header: 'Created', cellClassName: 'text-muted-foreground', render: (u) => new Date(u.createdAt).toLocaleDateString() },
-    { key: 'actions', header: '', required: true, render: () => <button className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-muted"><Pencil className="h-4 w-4" /></button> },
+    {
+      key: 'actions', header: '', required: true, headerClassName: 'text-right', cellClassName: 'text-right',
+      render: (u) => (
+        <div className="flex justify-end gap-1.5">
+          <button onClick={() => editRef.current(u)} title="Edit user" className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"><Pencil className="h-4 w-4" /></button>
+          <button onClick={() => toggleRef.current(u)} title={u.isActive ? 'Deactivate' : 'Activate'} className={`grid h-8 w-8 place-items-center rounded-lg hover:bg-muted ${u.isActive ? 'text-muted-foreground hover:text-[#9e2b21]' : 'text-[#3f7a32]'}`}>
+            {u.isActive ? <Ban className="h-4 w-4" /> : <RotateCcw className="h-4 w-4" />}
+          </button>
+        </div>
+      ),
+    },
   ], []);
 
   return (
     <div>
       <PageHead lead="Manage team members, roles, and access permissions across the organization.">
-        <button className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[13px] font-semibold text-primary-foreground hover:opacity-90"><Plus className="h-4 w-4" /> Add User</button>
+        <button onClick={() => setCreating(true)} className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[13px] font-semibold text-primary-foreground hover:opacity-90"><Plus className="h-4 w-4" /> Add User</button>
       </PageHead>
 
       <div className="mb-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]">
@@ -62,9 +89,9 @@ export default function UsersPage() {
       </div>
 
       <div className="mb-5 grid gap-[18px] md:grid-cols-3">
-        {Object.entries(ROLE_META).map(([role, m]) => (
-          <div key={role} className="rounded-2xl border bg-card p-[18px] shadow-sm">
-            <div className="mb-2.5 flex items-center justify-between"><span className={`rounded-full px-2.5 py-[3px] text-[11.5px] font-bold ${m.cls}`}>{m.label}</span><span className="text-[12px] text-muted-foreground">{count(role)} {count(role) === 1 ? 'user' : 'users'}</span></div>
+        {Object.entries(ROLE_META).map(([r, m]) => (
+          <div key={r} className="rounded-2xl border bg-card p-[18px] shadow-sm">
+            <div className="mb-2.5 flex items-center justify-between"><span className={`rounded-full px-2.5 py-[3px] text-[11.5px] font-bold ${m.cls}`}>{m.label}</span><span className="text-[12px] text-muted-foreground">{count(r)} {count(r) === 1 ? 'user' : 'users'}</span></div>
             <div className="mb-3.5 text-[13px] text-muted-foreground">{m.desc}</div>
             <div className="flex flex-col gap-2.5">{m.perms.map((p) => <div key={p} className="flex items-center gap-2.5 text-[13px] font-medium"><Check className="h-[15px] w-[15px] shrink-0 text-[#3f7a32]" />{p}</div>)}</div>
           </div>
@@ -86,6 +113,83 @@ export default function UsersPage() {
           </>
         }
       />
+
+      {(creating || editing) && (
+        <UserModal
+          user={editing}
+          onClose={() => { setCreating(false); setEditing(null); }}
+          onSaved={() => { qc.invalidateQueries({ queryKey: ['users'] }); setCreating(false); setEditing(null); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function UserModal({ user, onClose, onSaved }: { user: User | null; onClose: () => void; onSaved: () => void }) {
+  const isEdit = !!user;
+  const [name, setName] = useState(user?.name ?? '');
+  const [email, setEmail] = useState(user?.email ?? '');
+  const [password, setPassword] = useState('');
+  const [role, setRole] = useState<UserRole>(user?.role ?? 'employee');
+  const [isActive, setIsActive] = useState(user?.isActive ?? true);
+
+  const save = useMutation({
+    mutationFn: () =>
+      isEdit
+        ? usersApi.update(user!.id, { name, email, role, isActive, ...(password ? { password } : {}) })
+        : usersApi.create({ name, email, password, role }),
+    onSuccess: onSaved,
+  });
+
+  const err = save.error as { response?: { data?: { message?: string | string[] } } } | undefined;
+  const errMsg = err?.response?.data?.message
+    ? Array.isArray(err.response.data.message) ? err.response.data.message.join(', ') : err.response.data.message
+    : save.isError ? 'Could not save user.' : null;
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={onClose}>
+      <div className="w-full max-w-md rounded-2xl border bg-card p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="font-display text-[16px] font-semibold">{isEdit ? 'Edit User' : 'Add User'}</h3>
+          <button onClick={onClose} className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-muted"><X className="h-4 w-4" /></button>
+        </div>
+
+        <form onSubmit={(e) => { e.preventDefault(); save.mutate(); }} className="space-y-3">
+          <label className="block space-y-1 text-sm">
+            <span className="font-medium">Name</span>
+            <input value={name} onChange={(e) => setName(e.target.value)} required className="w-full rounded-md border bg-background px-3 py-2 text-sm" />
+          </label>
+          <label className="block space-y-1 text-sm">
+            <span className="font-medium">Email</span>
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required className="w-full rounded-md border bg-background px-3 py-2 text-sm" />
+          </label>
+          <label className="block space-y-1 text-sm">
+            <span className="font-medium">{isEdit ? 'New Password ' : 'Password'}{isEdit && <span className="text-muted-foreground">(leave blank to keep)</span>}</span>
+            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required={!isEdit} minLength={8} placeholder={isEdit ? '••••••••' : 'Min 8 characters'} className="w-full rounded-md border bg-background px-3 py-2 text-sm" />
+          </label>
+          <label className="block space-y-1 text-sm">
+            <span className="font-medium">Role</span>
+            <select value={role} onChange={(e) => setRole(e.target.value as UserRole)} className="w-full rounded-md border bg-background px-3 py-2 text-sm">
+              {ROLE_SELECT.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
+            </select>
+          </label>
+          {isEdit && (
+            <label className="flex items-center gap-2.5 text-sm">
+              <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} className="h-4 w-4 accent-[#42512f]" />
+              <span className="font-medium">Active</span>
+            </label>
+          )}
+
+          {errMsg && <p className="text-[13px] text-[#9e2b21]">{errMsg}</p>}
+
+          <div className="flex items-center justify-end gap-2 pt-1">
+            <button type="button" onClick={onClose} className="rounded-md border bg-card px-4 py-2 text-[13px] font-semibold hover:bg-muted">Cancel</button>
+            <button type="submit" disabled={save.isPending} className="rounded-md bg-primary px-4 py-2 text-[13px] font-semibold text-primary-foreground disabled:opacity-60">
+              {save.isPending ? 'Saving…' : isEdit ? 'Save changes' : 'Create user'}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }
