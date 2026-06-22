@@ -127,6 +127,17 @@ model User {
   @@map("users")
 }
 
+/// System-wide settings (key-value). Used to store integration credentials
+/// (key = "integration:<provider>", value = { ENV_VAR: value, ... }) entered
+/// from the admin UI, applied to runtime config on boot and on save.
+model AppSetting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("app_settings")
+}
+
 /// Per-user UI preferences (key-value). Used for customizable table column
 /// layouts (key = "cols:<tableKey>", value = { order, hidden }), and reusable
 /// for other personal settings later.

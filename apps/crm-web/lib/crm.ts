@@ -242,6 +242,20 @@ export const openphoneApi = {
   status: async (): Promise<OpenPhoneStatus> => (await api.get('/openphone/status')).data,
 };
 
+export interface IntegrationStatus {
+  openphone: { provider: string; configured: boolean; sandbox: boolean; baseUrl: string; apiKeyHint: string | null };
+  quo: { provider: string; configured: boolean; sandbox: boolean; baseUrl: string; apiKeyHint: string | null };
+}
+export const integrationsApi = {
+  status: async (): Promise<IntegrationStatus> => (await api.get('/integrations/status')).data,
+  connectOpenPhone: async (apiKey: string, baseUrl?: string) =>
+    (await api.put('/integrations/openphone', { apiKey, baseUrl })).data,
+  connectQuo: async (baseUrl: string, apiKey: string) =>
+    (await api.put('/integrations/quo', { baseUrl, apiKey })).data,
+  disconnect: async (provider: 'openphone' | 'quo') =>
+    (await api.delete(`/integrations/${provider}`)).data,
+};
+
 // ──────────────────────────── AI ───────────────────────────────
 export interface AiInsights {
   bestStateToday: { state: string; timezone: string; total: number; conversionPct: number } | null;

@@ -19,6 +19,7 @@ import { TasksModule } from './modules/tasks/tasks.module';
 import { CalendarModule } from './modules/calendar/calendar.module';
 import { PreferencesModule } from './modules/preferences/preferences.module';
 import { OpenPhoneModule } from './modules/openphone/openphone.module';
+import { IntegrationsModule } from './modules/integrations/integrations.module';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -43,6 +44,7 @@ import { HealthController } from './health.controller';
     CalendarModule,
     PreferencesModule,
     OpenPhoneModule,
+    IntegrationsModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
