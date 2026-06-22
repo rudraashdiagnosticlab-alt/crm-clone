@@ -1,16 +1,26 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
+import { Phone, MessageSquare } from 'lucide-react';
 import { leadsApi } from '@/lib/leads';
 import { communicationsApi } from '@/lib/crm';
 import { QuoStatusBadge } from '@/components/quo-status-badge';
 
+const SMS_TEMPLATES: { label: string; text: (name: string) => string }[] = [
+  { label: 'Intro', text: (n) => `Hi, this is the team at Milta reaching out about ${n}. Is now a good time to chat?` },
+  { label: 'Follow-up', text: () => `Just following up on our last conversation — happy to answer any questions when you're free.` },
+  { label: 'Missed you', text: () => `Sorry we missed you! Reply here or let us know a good time to call back.` },
+];
+
 export default function LeadDetailPage() {
   const qc = useQueryClient();
   const { id } = useParams<{ id: string }>();
+  const [smsOpen, setSmsOpen] = useState(false);
+  const [smsBody, setSmsBody] = useState('');
 
   const { data: lead, isLoading } = useQuery({
     queryKey: ['lead', id],
@@ -20,6 +30,16 @@ export default function LeadDetailPage() {
   const { data: timeline = [] } = useQuery({
     queryKey: ['lead', id, 'timeline'],
     queryFn: () => communicationsApi.timeline(id),
+  });
+
+  const refreshTimeline = () => qc.invalidateQueries({ queryKey: ['lead', id, 'timeline'] });
+  const call = useMutation({
+    mutationFn: () => communicationsApi.startCall(id),
+    onSuccess: (res) => { if (typeof window !== 'undefined') window.location.href = res.tel; refreshTimeline(); },
+  });
+  const sms = useMutation({
+    mutationFn: () => communicationsApi.sendSms(id, smsBody),
+    onSuccess: () => { setSmsBody(''); setSmsOpen(false); refreshTimeline(); },
   });
 
   const { data: logs = [] } = useQuery({
@@ -49,12 +69,52 @@ export default function LeadDetailPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-4">
+      <div className="flex flex-wrap items-center gap-4">
         <Link href="/leads" className="text-sm text-muted-foreground hover:underline">
           ← Leads
         </Link>
         <h1 className="text-lg font-semibold">{lead.businessName}</h1>
+        <div className="ml-auto flex items-center gap-2">
+          <button
+            onClick={() => call.mutate()}
+            disabled={call.isPending}
+            className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[13px] font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-60"
+          >
+            <Phone className="h-4 w-4" /> {call.isPending ? 'Calling…' : 'Call'}
+          </button>
+          <button
+            onClick={() => setSmsOpen((v) => !v)}
+            className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[13px] font-semibold hover:bg-muted"
+          >
+            <MessageSquare className="h-4 w-4" /> Send SMS
+          </button>
+        </div>
       </div>
+
+      {smsOpen && (
+        <div className="rounded-lg border bg-card p-4 shadow-sm">
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <span className="text-[13px] font-semibold">Send SMS to {lead.phone}</span>
+            <div className="ml-auto flex flex-wrap gap-1.5">
+              {SMS_TEMPLATES.map((t) => (
+                <button key={t.label} onClick={() => setSmsBody(t.text(lead.businessName))} className="rounded-full border px-2.5 py-1 text-[11.5px] font-medium hover:bg-muted">
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <textarea value={smsBody} onChange={(e) => setSmsBody(e.target.value)} rows={3} placeholder="Type a message or pick a template…" className="w-full rounded-md border bg-background px-3 py-2 text-sm" />
+          <div className="mt-2 flex items-center justify-between gap-2">
+            <span className="text-[11.5px] text-muted-foreground">{smsBody.length}/1600{sms.isError ? ' · failed to send' : ''}</span>
+            <div className="flex gap-2">
+              <button onClick={() => { setSmsOpen(false); setSmsBody(''); }} className="rounded-md border bg-card px-3 py-2 text-[13px] font-semibold hover:bg-muted">Cancel</button>
+              <button onClick={() => sms.mutate()} disabled={sms.isPending || !smsBody.trim()} className="rounded-md bg-primary px-4 py-2 text-[13px] font-semibold text-primary-foreground disabled:opacity-60">
+                {sms.isPending ? 'Sending…' : 'Send'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <section className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         {/* Lead info */}

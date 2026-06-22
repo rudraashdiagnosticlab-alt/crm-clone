@@ -1,7 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import * as crypto from 'crypto';
 import { CommDirection, Timezone, LeadStatus } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service';
+import { OpenPhoneService } from '../openphone/openphone.service';
 
 type Json = Record<string, unknown>;
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v ? v : undefined);
@@ -12,7 +13,10 @@ export class CommunicationsService {
   private readonly logger = new Logger(CommunicationsService.name);
   private fallbackAdminId: string | null = null;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly openphone: OpenPhoneService,
+  ) {}
 
   // ── Webhook signature (HMAC-SHA256 of the raw body) ──
   get webhookSecret() {
@@ -184,6 +188,58 @@ export class CommunicationsService {
     const lead = await this.findOrCreateLeadByPhone(phone);
     await this.prisma.lead.update({ where: { id: lead.id }, data: { quoContactId: str(o.id) } });
     return { ok: true, leadId: lead.id };
+  }
+
+  // ── Outbound: SMS ──
+  /** Send an SMS to a lead and record it on the timeline. */
+  async sendSms(leadId: string, body: string, from?: string) {
+    const lead = await this.prisma.lead.findFirst({ where: { id: leadId, deletedAt: null } });
+    if (!lead) throw new NotFoundException('Lead not found');
+    if (!body?.trim()) throw new BadRequestException('Message body is required');
+
+    // Resolve a "from" number: explicit, else the first workspace number.
+    let fromNumber = from;
+    if (!fromNumber) {
+      const status = await this.openphone.status();
+      fromNumber = status.phoneNumbers[0]?.number;
+    }
+    if (!fromNumber) throw new BadRequestException('No OpenPhone number available to send from');
+
+    const result = await this.openphone.sendSms({ from: fromNumber, to: [lead.phone], content: body });
+    const data = result.data as { id?: string; status?: string } | undefined;
+    const message = await this.prisma.message.create({
+      data: {
+        leadId: lead.id,
+        direction: CommDirection.outbound,
+        body,
+        fromNumber,
+        toNumber: lead.phone,
+        status: result.success ? data?.status ?? 'queued' : 'failed',
+        quoMessageId: data?.id,
+      },
+    });
+    await this.touchLead(lead.id);
+    return { success: result.success, message, error: result.success ? null : result.error ?? null };
+  }
+
+  // ── Outbound: click-to-call ──
+  /** Log an outbound call attempt and return a tel: link for the agent's dialer.
+   * The call is enriched later by the provider's call.completed webhook. */
+  async startCall(leadId: string, callerId: string) {
+    const lead = await this.prisma.lead.findFirst({ where: { id: leadId, deletedAt: null } });
+    if (!lead) throw new NotFoundException('Lead not found');
+
+    const call = await this.prisma.call.create({
+      data: {
+        leadId: lead.id,
+        callerId,
+        direction: CommDirection.outbound,
+        status: 'initiated',
+        startTime: new Date(),
+      },
+    });
+    await this.touchLead(lead.id);
+    return { callId: call.id, tel: `tel:${lead.phone}`, phone: lead.phone };
   }
 
   // ── Unified conversation timeline for a lead ──

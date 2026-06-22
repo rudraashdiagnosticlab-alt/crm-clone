@@ -258,6 +258,10 @@ export interface TimelineItem {
 export const communicationsApi = {
   timeline: async (leadId: string): Promise<TimelineItem[]> =>
     (await api.get(`/communications/lead/${leadId}`)).data,
+  sendSms: async (leadId: string, body: string): Promise<{ success: boolean; error: string | null }> =>
+    (await api.post(`/communications/lead/${leadId}/sms`, { body })).data,
+  startCall: async (leadId: string): Promise<{ callId: string; tel: string; phone: string }> =>
+    (await api.post(`/communications/lead/${leadId}/call`, {})).data,
 };
 
 export interface IntegrationStatus {
