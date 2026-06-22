@@ -2,20 +2,31 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ChevronRight, ChevronDown } from 'lucide-react';
-import { metricsApi } from '@/lib/crm';
+import { ChevronRight, ChevronDown, Download } from 'lucide-react';
+import { metricsApi, type PivotTimezone } from '@/lib/crm';
+import { PageHead } from '@/components/page-head';
+import { downloadCsv, printTable } from '@/lib/export';
 
-function Metrics({ total, planned, balance, progressPct }: { total: number; planned: number; balance: number; progressPct: number }) {
+const EXPORT_HEADERS = ['Territory', 'Total', 'Planned', 'Balance', 'Progress %'];
+function flattenPivot(pivot: PivotTimezone[]): (string | number)[][] {
+  const rows: (string | number)[][] = [];
+  for (const tz of pivot) {
+    rows.push([tz.timezone, tz.total, tz.planned, tz.balance, `${tz.progressPct}%`]);
+    for (const st of tz.states) {
+      rows.push([`  ${st.state}`, st.total, st.planned, st.balance, `${st.progressPct}%`]);
+      for (const ci of st.cities) rows.push([`    ${ci.city}`, ci.total, ci.planned, ci.balance, `${ci.progressPct}%`]);
+    }
+  }
+  return rows;
+}
+
+function Cols({ total, planned, balance, progressPct }: { total: number; planned: number; balance: number; progressPct: number }) {
   return (
     <>
-      <td className="px-4 py-2 text-right tabular-nums">{total.toLocaleString()}</td>
-      <td className="px-4 py-2 text-right tabular-nums">{planned.toLocaleString()}</td>
-      <td className="px-4 py-2 text-right tabular-nums">{balance.toLocaleString()}</td>
-      <td className="px-4 py-2 text-right tabular-nums">
-        <span className={progressPct >= 100 ? 'text-green-600' : progressPct < 10 ? 'text-red-600' : ''}>
-          {progressPct}%
-        </span>
-      </td>
+      <span className="w-[110px] text-right tabular-nums">{total.toLocaleString()}</span>
+      <span className="w-[110px] text-right tabular-nums">{planned.toLocaleString()}</span>
+      <span className="w-[110px] text-right tabular-nums">{balance.toLocaleString()}</span>
+      <span className={`w-[90px] text-right tabular-nums ${progressPct >= 100 ? 'text-[#3f7a32]' : progressPct < 10 ? 'text-[#9e2b21]' : ''}`}>{progressPct}%</span>
     </>
   );
 }
@@ -23,85 +34,62 @@ function Metrics({ total, planned, balance, progressPct }: { total: number; plan
 export default function ReportsPage() {
   const { data: pivot = [], isLoading } = useQuery({ queryKey: ['pivot'], queryFn: metricsApi.pivot });
   const [open, setOpen] = useState<Set<string>>(new Set());
-  const toggle = (k: string) =>
-    setOpen((s) => {
-      const n = new Set(s);
-      n.has(k) ? n.delete(k) : n.add(k);
-      return n;
-    });
+  const toggle = (k: string) => setOpen((s) => { const n = new Set(s); n.has(k) ? n.delete(k) : n.add(k); return n; });
 
   return (
-    <div className="space-y-4">
-      <p className="text-sm text-muted-foreground">
-        Expandable Timezone › State › City pivot (PVT-001/002) — click a row to drill down.
-      </p>
+    <div>
+      <PageHead lead="Expandable Timezone › State › City pivot — click a row to drill down.">
+        <button onClick={() => downloadCsv('pivot-report', EXPORT_HEADERS, flattenPivot(pivot))} disabled={pivot.length === 0} className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[13px] font-semibold hover:bg-muted disabled:opacity-50"><Download className="h-4 w-4" /> Export Excel</button>
+        <button onClick={() => printTable('Pivot Report', EXPORT_HEADERS, flattenPivot(pivot))} disabled={pivot.length === 0} className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[13px] font-semibold hover:bg-muted disabled:opacity-50"><Download className="h-4 w-4" /> Export PDF</button>
+      </PageHead>
 
-      <div className="overflow-hidden rounded-lg border bg-card shadow-sm">
-        <table className="w-full text-sm">
-          <thead className="border-b bg-muted/50 text-left text-xs font-medium text-muted-foreground">
-            <tr>
-              <th className="px-4 py-2.5 font-medium">Territory</th>
-              <th className="px-4 py-2.5 text-right font-medium">Total</th>
-              <th className="px-4 py-2.5 text-right font-medium">Planned</th>
-              <th className="px-4 py-2.5 text-right font-medium">Balance</th>
-              <th className="px-4 py-2.5 text-right font-medium">Progress %</th>
-            </tr>
-          </thead>
-          <tbody>
-            {isLoading && (
-              <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">Loading…</td>
-              </tr>
-            )}
-            {pivot.map((tz) => {
-              const tzKey = tz.timezone;
-              const tzOpen = open.has(tzKey);
-              return (
-                <RowGroup key={tzKey}>
-                  <tr className="cursor-pointer border-b bg-muted/20 font-medium hover:bg-muted/40" onClick={() => toggle(tzKey)}>
-                    <td className="px-4 py-2.5">
-                      <span className="inline-flex items-center gap-1">
-                        {tzOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                        {tz.timezone}
+      <div className="overflow-hidden rounded-2xl border bg-card shadow-sm">
+        <div className="flex items-center border-b bg-background px-[14px] py-[11px] text-[11px] font-semibold uppercase tracking-[.06em] text-muted-foreground">
+          <span className="flex-1">Territory</span>
+          <span className="w-[110px] text-right">Total</span>
+          <span className="w-[110px] text-right">Planned</span>
+          <span className="w-[110px] text-right">Balance</span>
+          <span className="w-[90px] text-right">Progress</span>
+        </div>
+
+        {isLoading && <div className="px-4 py-8 text-center text-sm text-muted-foreground">Loading…</div>}
+
+        {pivot.map((tz) => {
+          const tzOpen = open.has(tz.timezone);
+          return (
+            <div key={tz.timezone}>
+              <div className="flex cursor-pointer items-center border-b bg-background/60 px-[14px] py-2.5 text-[13px] font-bold hover:bg-muted/60" onClick={() => toggle(tz.timezone)}>
+                <span className="flex flex-1 items-center gap-2">
+                  {tzOpen ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+                  {tz.timezone}
+                </span>
+                <Cols {...tz} />
+              </div>
+              {tzOpen && tz.states.map((st) => {
+                const stKey = `${tz.timezone}/${st.state}`;
+                const stOpen = open.has(stKey);
+                return (
+                  <div key={stKey}>
+                    <div className="flex cursor-pointer items-center border-b py-2 pl-9 pr-[14px] text-[13px] font-semibold hover:bg-muted/60" onClick={() => toggle(stKey)}>
+                      <span className="flex flex-1 items-center gap-2">
+                        {stOpen ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />}
+                        {st.state}
                       </span>
-                    </td>
-                    <Metrics {...tz} />
-                  </tr>
-                  {tzOpen &&
-                    tz.states.map((st) => {
-                      const stKey = `${tzKey}/${st.state}`;
-                      const stOpen = open.has(stKey);
-                      return (
-                        <RowGroup key={stKey}>
-                          <tr className="cursor-pointer border-b hover:bg-muted/30" onClick={() => toggle(stKey)}>
-                            <td className="py-2 pl-10 pr-4">
-                              <span className="inline-flex items-center gap-1">
-                                {stOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-                                {st.state}
-                              </span>
-                            </td>
-                            <Metrics {...st} />
-                          </tr>
-                          {stOpen &&
-                            st.cities.map((ci) => (
-                              <tr key={`${stKey}/${ci.city}`} className="border-b text-muted-foreground last:border-0">
-                                <td className="py-2 pl-16 pr-4">{ci.city}</td>
-                                <Metrics {...ci} />
-                              </tr>
-                            ))}
-                        </RowGroup>
-                      );
-                    })}
-                </RowGroup>
-              );
-            })}
-          </tbody>
-        </table>
+                      <Cols {...st} />
+                    </div>
+                    {stOpen && st.cities.map((ci) => (
+                      <div key={`${stKey}/${ci.city}`} className="flex items-center border-b py-2 pl-[62px] pr-[14px] text-[13px] text-muted-foreground last:border-0">
+                        <span className="flex-1">{ci.city}</span>
+                        <Cols {...ci} />
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
-}
-
-function RowGroup({ children }: { children: React.ReactNode }) {
-  return <>{children}</>;
 }

@@ -130,6 +130,29 @@ export class CallsService {
     return lead ?? null;
   }
 
+  // CAL-013 — upcoming follow-ups (notes with a next follow-up date)
+  async followups() {
+    const notes = await this.prisma.note.findMany({
+      where: { nextFollowupDate: { not: null } },
+      orderBy: { nextFollowupDate: 'asc' },
+      take: 50,
+      select: {
+        id: true,
+        noteText: true,
+        nextFollowupDate: true,
+        lead: { select: { id: true, businessName: true, phone: true, city: true, state: true, timezone: true, status: true } },
+        createdBy: { select: { name: true } },
+      },
+    });
+    return notes.map((n) => ({
+      id: n.id,
+      noteText: n.noteText,
+      nextFollowupDate: n.nextFollowupDate,
+      caller: n.createdBy?.name ?? null,
+      lead: n.lead,
+    }));
+  }
+
   // CAL-006 — caller's assigned lead queue
   myLeads(callerId: string) {
     return this.prisma.lead.findMany({

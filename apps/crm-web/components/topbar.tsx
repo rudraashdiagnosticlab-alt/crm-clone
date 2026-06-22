@@ -1,37 +1,37 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
-import { Search, Plus, Settings, LayoutGrid, LogOut } from 'lucide-react';
 import { useState } from 'react';
+import Link from 'next/link';
+import { usePathname, useRouter } from 'next/navigation';
+import { Search, Phone, Settings, LogOut } from 'lucide-react';
 import { tokenStore } from '@/lib/api';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { NotificationBell } from '@/components/notification-bell';
+import { titleForPath, subForPath } from '@/lib/nav';
 
-function IconButton({
-  children,
-  label,
-  onClick,
-}: {
-  children: React.ReactNode;
-  label: string;
-  onClick?: () => void;
-}) {
+function IconBtn({ children, label, href, onClick }: { children: React.ReactNode; label: string; href?: string; onClick?: () => void }) {
+  const cls =
+    'relative grid h-[38px] w-[38px] place-items-center rounded-[10px] text-[#333f25] transition-colors hover:bg-muted dark:text-foreground/80';
+  if (href)
+    return (
+      <Link href={href} aria-label={label} title={label} className={cls}>
+        {children}
+      </Link>
+    );
   return (
-    <button
-      type="button"
-      aria-label={label}
-      title={label}
-      onClick={onClick}
-      className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
-    >
+    <button type="button" aria-label={label} title={label} onClick={onClick} className={cls}>
       {children}
     </button>
   );
 }
 
-export function Topbar({ title, email }: { title: string; email?: string }) {
+export function Topbar({ email }: { email?: string }) {
   const router = useRouter();
+  const pathname = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
+
+  const title = titleForPath(pathname);
+  const sub = subForPath(pathname);
   const initial = (email ?? 'U').charAt(0).toUpperCase();
 
   function logout() {
@@ -40,56 +40,61 @@ export function Topbar({ title, email }: { title: string; email?: string }) {
   }
 
   return (
-    <header className="flex h-14 shrink-0 items-center justify-between gap-4 border-b bg-card px-6">
-      <h1 className="text-lg font-semibold">{title}</h1>
+    <header className="sticky top-0 z-40 flex h-[62px] items-center gap-4 border-b bg-card/85 px-6 backdrop-blur">
+      {/* Page title + subtitle */}
+      <div className="shrink-0">
+        <div className="font-display text-[18px] font-semibold leading-tight tracking-tight">{title}</div>
+        {sub && <div className="text-[11.5px] text-muted-foreground">{sub}</div>}
+      </div>
 
-      <div className="flex flex-1 items-center justify-end gap-1">
-        {/* Search records */}
-        <div className="relative mr-1 hidden w-72 md:block">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <input
-            type="text"
-            placeholder="Search records"
-            className="w-full rounded-full border bg-background py-1.5 pl-9 pr-3 text-sm outline-none focus:border-primary"
-          />
-        </div>
+      {/* Search */}
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          router.push('/leads');
+        }}
+        className="ml-2 hidden max-w-[420px] flex-1 items-center gap-[9px] rounded-md border bg-background px-[13px] py-2 transition-colors focus-within:border-primary md:flex"
+      >
+        <Search className="h-4 w-4 text-muted-foreground" />
+        <input
+          placeholder="Search leads, contacts, calls…"
+          className="flex-1 border-none bg-transparent text-sm outline-none"
+        />
+        <kbd className="rounded border bg-card px-1.5 font-mono text-[10.5px] text-muted-foreground">⌘K</kbd>
+      </form>
 
-        <IconButton label="Create">
-          <Plus className="h-5 w-5" />
-        </IconButton>
-        <NotificationBell />
-        <IconButton label="Settings">
-          <Settings className="h-5 w-5" />
-        </IconButton>
-        <IconButton label="Apps">
-          <LayoutGrid className="h-5 w-5" />
-        </IconButton>
-        <ThemeToggle />
+      <div className="flex-1" />
 
-        {/* Profile */}
-        <div className="relative ml-1">
-          <button
-            type="button"
-            onClick={() => setMenuOpen((v) => !v)}
-            className="flex h-9 w-9 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-foreground"
-          >
-            {initial}
-          </button>
-          {menuOpen && (
-            <>
-              <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
-              <div className="absolute right-0 z-20 mt-2 w-56 rounded-md border bg-card p-1 shadow-lg">
-                <div className="border-b px-3 py-2 text-sm text-muted-foreground">{email}</div>
-                <button
-                  onClick={logout}
-                  className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-muted"
-                >
-                  <LogOut className="h-4 w-4" /> Logout
-                </button>
-              </div>
-            </>
-          )}
-        </div>
+      {/* Actions */}
+      <IconBtn label="Quick dial" href="/calling">
+        <Phone className="h-[19px] w-[19px]" />
+      </IconBtn>
+      <NotificationBell />
+      <IconBtn label="Settings" href="/settings">
+        <Settings className="h-[19px] w-[19px]" />
+      </IconBtn>
+      <ThemeToggle />
+
+      {/* Avatar */}
+      <div className="relative">
+        <button
+          type="button"
+          onClick={() => setMenuOpen((v) => !v)}
+          className="grid h-9 w-9 place-items-center rounded-full bg-primary font-display text-sm font-semibold text-primary-foreground"
+        >
+          {initial}
+        </button>
+        {menuOpen && (
+          <>
+            <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
+            <div className="absolute right-0 z-20 mt-2 w-56 rounded-md border bg-card p-1 shadow-lg">
+              <div className="border-b px-3 py-2 text-sm text-muted-foreground">{email}</div>
+              <button onClick={logout} className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-muted">
+                <LogOut className="h-4 w-4" /> Logout
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </header>
   );

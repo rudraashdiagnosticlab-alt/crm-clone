@@ -28,6 +28,12 @@ export class CallsController {
     return this.calls.nextLead(user.id);
   }
 
+  // CAL-013 — upcoming follow-ups across leads
+  @Get('followups')
+  followups() {
+    return this.calls.followups();
+  }
+
   // CAL-015 — call + note history for a lead
   @Get()
   history(@Query('leadId') leadId: string) {

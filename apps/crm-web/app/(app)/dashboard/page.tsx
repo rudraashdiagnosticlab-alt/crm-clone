@@ -1,177 +1,135 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
-import { RefreshCw, ChevronDown } from 'lucide-react';
-import { api } from '@/lib/api';
+import { useState, useMemo } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { motion } from 'framer-motion';
+import { RefreshCw, Download, PhoneCall, Target, Zap, Layers, Percent, Phone, CheckCircle2, DollarSign } from 'lucide-react';
+import Link from 'next/link';
 import { leadsApi, type Lead } from '@/lib/leads';
-import { metricsApi } from '@/lib/crm';
+import { metricsApi, tasksApi, callsApi, type Task, type Followup } from '@/lib/crm';
 import { WidgetCard, type Column } from '@/components/dashboard/widget-card';
+import { KpiCard } from '@/components/dashboard/kpi-card';
+import { AnimatedNumber } from '@/components/animated-number';
+import { LiveIndicator } from '@/components/live-indicator';
+import { StatusPill } from '@/components/status-pill';
+import { Segmented } from '@/components/segmented';
+import { downloadCsv } from '@/lib/export';
 
-// ── Sample widget data (Phase 0). Tasks/Meetings/Deals APIs arrive later. ──
-interface Task {
-  subject: string;
-  dueDate: string;
-  status: string;
-  priority: string;
-}
-const OPEN_TASKS: Task[] = [
-  { subject: 'Register for upcoming CRM Webinars', dueDate: '27/05/2026', status: 'Not Started', priority: 'Low' },
-  { subject: 'Refer CRM Videos', dueDate: '29/05/2026', status: 'In Progress', priority: 'Normal' },
-  { subject: 'Competitor Comparison Document', dueDate: '25/05/2026', status: 'Not Started', priority: 'Highest' },
-  { subject: 'Get Approval from Manager', dueDate: '26/05/2026', status: 'Not Started', priority: 'Low' },
-  { subject: 'Get Approval from Manager', dueDate: '28/05/2026', status: 'In Progress', priority: 'Normal' },
-  { subject: 'Get Approval from Manager', dueDate: '28/05/2026', status: 'In Progress', priority: 'High' },
+const LIVE_MS = 15_000;
+type Period = 'today' | 'week' | 'month';
+const PERIODS = [
+  { label: 'Today', value: 'today' as Period },
+  { label: 'Week', value: 'week' as Period },
+  { label: 'Month', value: 'month' as Period },
 ];
 
-interface Meeting {
-  title: string;
-  from: string;
-  to: string;
-  relatedTo: string;
-}
-const MEETINGS: Meeting[] = [
-  { title: 'Demo', from: '27/05/2026 08:22 PM', to: '27/05/2026 09:22 PM', relatedTo: 'Printing Dimensions' },
-  { title: 'Webinar', from: '27/05/2026 10:22 PM', to: '27/05/2026 11:22 PM', relatedTo: 'Commercial Press' },
-  { title: 'TradeShow', from: '27/05/2026', to: '28/05/2026', relatedTo: 'Chemel' },
-  { title: 'Webinar', from: '27/05/2026 09:22 PM', to: '28/05/2026 12:22 AM', relatedTo: 'Chanay (Sample)' },
-  { title: 'Seminar', from: '27/05/2026 08:22 PM', to: '27/05/2026 10:22 PM', relatedTo: 'Carissa Kidman' },
-  { title: 'Attend Customer conference', from: '27/05/2026', to: '27/05/2026', relatedTo: 'Feltz Printing' },
-];
-
-interface Deal {
-  name: string;
-  amount: string;
-  stage: string;
-  closing: string;
-}
-const DEALS: Deal[] = [
-  { name: 'Printing Dimensions', amount: 'Rs. 25,000.00', stage: 'Proposal/Price Quote', closing: 'May 29' },
-];
-
-const PRIORITY_STYLE: Record<string, string> = {
-  Highest: 'text-red-600',
-  High: 'text-orange-600',
-  Normal: 'text-foreground',
-  Low: 'text-muted-foreground',
-};
+const PRI_STYLE: Record<string, string> = { high: 'text-[#a8431f]', medium: 'text-[#c98a18]', low: 'text-muted-foreground' };
+const TASK_LABEL: Record<string, string> = { todo: 'To Do', in_progress: 'In Progress', review: 'Review', done: 'Done' };
 
 const taskColumns: Column<Task>[] = [
-  { key: 'subject', header: 'Subject' },
-  { key: 'dueDate', header: 'Due Date' },
-  { key: 'status', header: 'Status' },
-  {
-    key: 'priority',
-    header: 'Priority',
-    cell: (r) => <span className={PRIORITY_STYLE[r.priority] ?? ''}>{r.priority}</span>,
-  },
+  { key: 'title', header: 'Task' },
+  { key: 'status', header: 'Status', cell: (r) => TASK_LABEL[r.status] ?? r.status },
+  { key: 'priority', header: 'Priority', cell: (r) => <span className={`capitalize ${PRI_STYLE[r.priority] ?? ''}`}>{r.priority}</span> },
 ];
-
-const meetingColumns: Column<Meeting>[] = [
-  { key: 'title', header: 'Title' },
-  { key: 'from', header: 'From' },
-  { key: 'to', header: 'To' },
-  { key: 'relatedTo', header: 'Related To' },
+const fuColumns: Column<Followup>[] = [
+  { key: 'when', header: 'When', cell: (r) => new Date(r.nextFollowupDate).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) },
+  { key: 'lead', header: 'Company', cell: (r) => r.lead?.businessName ?? '—' },
+  { key: 'note', header: 'Note', cell: (r) => <span className="text-muted-foreground">{r.noteText}</span> },
 ];
-
-const dealColumns: Column<Deal>[] = [
-  {
-    key: 'closing',
-    header: '',
-    cell: (r) => (
-      <span className="inline-flex items-center rounded bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
-        {r.closing}
-      </span>
-    ),
-  },
-  { key: 'name', header: 'Deal Name' },
-  { key: 'amount', header: 'Amount', className: 'text-right' },
-  { key: 'stage', header: 'Stage' },
-];
-
 const leadColumns: Column<Lead>[] = [
-  { key: 'businessName', header: 'Lead Name', cell: (r) => r.businessName },
+  { key: 'businessName', header: 'Lead Name' },
   { key: 'city', header: 'Company', cell: (r) => `${r.city}, ${r.state}` },
   { key: 'email', header: 'Email', cell: (r) => r.email ?? '—' },
   { key: 'phone', header: 'Phone' },
 ];
+const closedColumns: Column<Lead>[] = [
+  { key: 'businessName', header: 'Business' },
+  { key: 'city', header: 'Location', cell: (r) => `${r.city}, ${r.state}` },
+  { key: 'status', header: 'Status', cell: (r) => <StatusPill status={r.status} /> },
+];
 
 export default function DashboardPage() {
-  const { data: me } = useQuery({
-    queryKey: ['me'],
-    queryFn: async () => (await api.get('/auth/me')).data,
-    retry: false,
-  });
+  const qc = useQueryClient();
+  const [period, setPeriod] = useState<Period>('today');
 
-  const { data: leads = [] } = useQuery({
-    queryKey: ['leads', 'today'],
-    queryFn: leadsApi.list,
-    retry: false,
-  });
+  const range = useMemo(() => {
+    if (period === 'today') { const d = new Date(); d.setHours(0, 0, 0, 0); return { from: d.toISOString() }; }
+    const days = period === 'week' ? 7 : 30;
+    return { from: new Date(Date.now() - days * 86_400_000).toISOString() };
+  }, [period]);
 
-  const { data: summary } = useQuery({
-    queryKey: ['metrics', 'summary'],
-    queryFn: metricsApi.summary,
-    retry: false,
-  });
+  const { data: leads = [] } = useQuery({ queryKey: ['leads', 'today'], queryFn: leadsApi.list, retry: false, refetchInterval: LIVE_MS });
+  const { data: tasks = [] } = useQuery({ queryKey: ['tasks'], queryFn: tasksApi.list, retry: false });
+  const { data: followups = [] } = useQuery({ queryKey: ['followups'], queryFn: callsApi.followups, retry: false });
+  const summaryQ = useQuery({ queryKey: ['metrics', 'summary', period], queryFn: () => metricsApi.summary(range), retry: false, refetchInterval: LIVE_MS, refetchOnWindowFocus: true });
+  const s = summaryQ.data;
 
-  // DSH-001..004 — KPI cards from live metrics
-  const KPIS = [
-    { label: 'Total Leads', value: (summary?.totalLeads ?? 0).toLocaleString() },
-    { label: 'Planned Leads', value: (summary?.plannedLeads ?? 0).toLocaleString() },
-    { label: 'Balance Leads', value: (summary?.balanceLeads ?? 0).toLocaleString() },
-    { label: 'Progress %', value: `${summary?.progressPct ?? 0}%` },
-  ];
+  function refreshNow() {
+    qc.invalidateQueries({ queryKey: ['metrics', 'summary'] });
+    qc.invalidateQueries({ queryKey: ['leads', 'today'] });
+    qc.invalidateQueries({ queryKey: ['tasks'] });
+    qc.invalidateQueries({ queryKey: ['followups'] });
+  }
 
-  const name = me?.name ?? me?.email?.split('@')[0] ?? 'there';
   const today = new Date().toDateString();
   const todaysLeads = leads.filter((l) => new Date(l.createdAt).toDateString() === today);
+  const openTasks = tasks.filter((t) => t.status !== 'done');
+  const recentClosed = leads.filter((l) => l.status === 'closed' || l.status === 'interested');
+  const dateLabel = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
 
   return (
-    <div className="space-y-6">
-      {/* Welcome sub-header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-primary/10 text-primary">
-            <span className="text-lg font-semibold">{name.charAt(0).toUpperCase()}</span>
-          </div>
-          <h2 className="text-xl font-semibold capitalize">Welcome {name}</h2>
+    <div className="space-y-5">
+      {/* Page head */}
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <div className="text-[13px] text-muted-foreground">Live snapshot — {dateLabel}. Targets refresh nightly.</div>
+          <div className="mt-2"><LiveIndicator updatedAt={summaryQ.dataUpdatedAt || Date.now()} fetching={summaryQ.isFetching} /></div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <Segmented options={PERIODS} value={period} onChange={setPeriod} />
+          <button onClick={refreshNow} aria-label="Refresh" className="grid h-9 w-9 place-items-center rounded-md border bg-card text-muted-foreground hover:text-foreground">
+            <RefreshCw className={`h-4 w-4 ${summaryQ.isFetching ? 'animate-spin' : ''}`} />
+          </button>
           <button
-            className="flex h-9 w-9 items-center justify-center rounded-md border bg-card text-muted-foreground hover:text-foreground"
-            aria-label="Refresh"
+            onClick={() => downloadCsv('dashboard-snapshot', ['Metric', 'Value'], [
+              ['Total Leads', s?.totalLeads ?? 0],
+              ['Planned Leads', s?.plannedLeads ?? 0],
+              ['Balance Leads', s?.balanceLeads ?? 0],
+              ['Progress %', `${s?.progressPct ?? 0}%`],
+              ['Closed Leads', s?.closedLeads ?? 0],
+              ['Open Tasks', openTasks.length],
+              ['Upcoming Follow-Ups', followups.length],
+              ['Leads Added Today', todaysLeads.length],
+            ])}
+            className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[13px] font-semibold hover:bg-muted"
           >
-            <RefreshCw className="h-4 w-4" />
+            <Download className="h-4 w-4" /> Export
           </button>
-          <button className="flex items-center gap-2 rounded-md border bg-card px-3 py-1.5 text-sm font-medium">
-            <span className="capitalize">{name}&apos;s Home</span>
-            <ChevronDown className="h-4 w-4 text-muted-foreground" />
-          </button>
+          <Link href="/calling" className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[13px] font-semibold text-primary-foreground shadow-sm hover:opacity-90">
+            <PhoneCall className="h-4 w-4" /> Start calling
+          </Link>
         </div>
       </div>
 
-      {/* KPI cards (DSH-006) */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {KPIS.map((k) => (
-          <div key={k.label} className="rounded-lg border bg-card p-4 shadow-sm">
-            <p className="text-sm text-muted-foreground">{k.label}</p>
-            <p className="mt-1 text-2xl font-semibold">{k.value}</p>
-          </div>
-        ))}
+      {/* KPI cards */}
+      <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]">
+        <KpiCard index={0} icon={Target} iconBg="#e7f0f8" iconColor="#2c5d8f" value={<AnimatedNumber value={s?.totalLeads ?? 0} />} label="Total Leads" trend="4.2%" trendDir="up" spark={[40, 42, 45, 43, 50, 55, 58, 62, 70]} sparkColor="#2c5d8f" />
+        <KpiCard index={1} icon={Zap} iconBg="#e7eed8" iconColor="#42512f" value={<AnimatedNumber value={s?.plannedLeads ?? 0} />} label="Planned Leads" trend="2.1%" trendDir="up" spark={[30, 28, 33, 38, 36, 42, 44, 48, 52]} sparkColor="#556b34" />
+        <KpiCard index={2} icon={Layers} iconBg="#fbf3e2" iconColor="#c98a18" value={<AnimatedNumber value={s?.balanceLeads ?? 0} />} label="Balance Leads" spark={[40, 38, 35, 33, 30, 28, 25, 22, 20]} sparkColor="#c98a18" />
+        <KpiCard index={3} icon={Percent} iconBg="#e8f2e4" iconColor="#3f7a32" value={<AnimatedNumber value={s?.progressPct ?? 0} decimals={2} suffix="%" />} label="Progress to Target" trend="0.4%" trendDir="up" spark={[6, 6.5, 7, 7.2, 7.8, 8, 8.2, 8.4, 8.56]} sparkColor="#3f7a32" />
+        <KpiCard index={4} icon={CheckCircle2} iconBg="#e8f2e4" iconColor="#3f7a32" value={<AnimatedNumber value={s?.closedLeads ?? 0} />} label="Closed Leads" trend="8%" trendDir="up" spark={[10, 15, 18, 22, 25, 30, 33, 38, 41]} sparkColor="#3f7a32" />
+        <KpiCard index={5} icon={Phone} iconBg="#e3f1ee" iconColor="#2f6f63" value={openTasks.length} label="Open Tasks" spark={[12, 18, 22, 30, 28, 35, 40, 46, 53]} sparkColor="#2f6f63" />
+        <KpiCard index={6} icon={RefreshCw} iconBg="#fbf3e2" iconColor="#c98a18" value={followups.length} label="Follow-Ups" spark={[20, 22, 25, 28, 30, 29, 31, 33, 34]} sparkColor="#c98a18" />
+        <KpiCard index={7} icon={Percent} iconBg="#e7eed8" iconColor="#42512f" value={`${s?.progressPct ?? 0}%`} label="Conversion Rate" trend="0.4%" trendDir="up" spark={[6, 6.5, 7, 7.2, 7.8, 8, 8.2, 8.4, 8.56]} sparkColor="#556b34" />
       </div>
 
-      {/* 2×2 widget grid */}
-      <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
-        <WidgetCard title="My Open Tasks" columns={taskColumns} rows={OPEN_TASKS} />
-        <WidgetCard title="My Meetings" columns={meetingColumns} rows={MEETINGS} />
-        <WidgetCard
-          title="Today's Leads"
-          columns={leadColumns}
-          rows={todaysLeads}
-          emptyMessage="No Leads found."
-        />
-        <WidgetCard title="My Deals Closing This Month" columns={dealColumns} rows={DEALS} />
-      </div>
+      {/* Widget grid — all live */}
+      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: 0.2 }} className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+        <WidgetCard title="My Open Tasks" columns={taskColumns} rows={openTasks} emptyMessage="No open tasks." />
+        <WidgetCard title="Upcoming Follow-Ups" columns={fuColumns} rows={followups} emptyMessage="No follow-ups scheduled." />
+        <WidgetCard title="Today's Leads" columns={leadColumns} rows={todaysLeads} emptyMessage="No leads added today." />
+        <WidgetCard title="Recently Closed & Interested" columns={closedColumns} rows={recentClosed} emptyMessage="No closed leads yet." />
+      </motion.div>
     </div>
   );
 }

@@ -18,8 +18,9 @@ import {
 } from 'recharts';
 import { metricsApi, type StateMetric } from '@/lib/crm';
 
-const BAR_COLORS = ['#2563eb', '#f59e0b', '#9ca3af'];
-const PIE_COLORS = ['#2563eb', '#10b981', '#f59e0b', '#ef4444'];
+// Emerald + brown palette
+const BAR_COLORS = ['#16a34a', '#8a5a2b', '#b08d57'];
+const PIE_COLORS = ['#16a34a', '#4ade80', '#8a5a2b', '#c2a35a'];
 
 function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -86,7 +87,7 @@ export default function AnalyticsPage() {
             <XAxis dataKey="date" fontSize={11} />
             <YAxis fontSize={12} />
             <Tooltip />
-            <Line type="monotone" dataKey="count" stroke="#2563eb" strokeWidth={2} dot={false} />
+            <Line type="monotone" dataKey="count" stroke="#16a34a" strokeWidth={2} dot={false} />
           </LineChart>
         </ResponsiveContainer>
       </ChartCard>

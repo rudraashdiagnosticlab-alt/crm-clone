@@ -46,8 +46,12 @@ export interface BarPoint {
   value: number;
 }
 
+export interface MetricsRange {
+  from?: string;
+  to?: string;
+}
 export const metricsApi = {
-  summary: async (): Promise<MetricsSummary> => (await api.get('/metrics/summary')).data,
+  summary: async (params?: MetricsRange): Promise<MetricsSummary> => (await api.get('/metrics/summary', { params })).data,
   byTimezone: async (): Promise<TimezoneCount[]> => (await api.get('/metrics/by-timezone')).data,
   byState: async (): Promise<StateMetric[]> => (await api.get('/metrics/by-state')).data,
   daily: async (): Promise<DailyPoint[]> => (await api.get('/metrics/daily')).data,
@@ -96,9 +100,18 @@ export type CallOutcome =
   | 'closed_deal'
   | 'follow_up_required';
 
+export interface Followup {
+  id: string;
+  noteText: string;
+  nextFollowupDate: string;
+  caller: string | null;
+  lead: { id: string; businessName: string; phone: string; city: string; state: string; timezone: string; status: string } | null;
+}
+
 export const callsApi = {
   dashboard: async (): Promise<CallerDashboard> => (await api.get('/calls/caller/dashboard')).data,
   myLeads: async (): Promise<Lead[]> => (await api.get('/calls/caller/leads')).data,
+  followups: async (): Promise<Followup[]> => (await api.get('/calls/followups')).data,
   start: async (leadId: string) => (await api.post('/calls/start', { leadId })).data,
   end: async (callId: string, outcome: CallOutcome, durationSecs?: number) =>
     (await api.post(`/calls/${callId}/end`, { outcome, durationSecs })).data,
@@ -135,8 +148,9 @@ export interface DailySummaryRow {
   callbacks: number;
   deals: number;
 }
+export type Period = 'day' | 'week' | 'month';
 export const productivityApi = {
-  perCaller: async (): Promise<CallerProductivity[]> => (await api.get('/productivity')).data,
+  perCaller: async (period: Period = 'day'): Promise<CallerProductivity[]> => (await api.get('/productivity', { params: { period } })).data,
   teamLive: async (): Promise<TeamLive> => (await api.get('/productivity/team-live')).data,
   dailySummary: async (): Promise<DailySummaryRow[]> => (await api.get('/productivity/daily-summary')).data,
 };
@@ -169,6 +183,38 @@ export const notificationsApi = {
   list: async (): Promise<Notification[]> => (await api.get('/notifications')).data,
   unreadCount: async (): Promise<{ count: number }> => (await api.get('/notifications/unread-count')).data,
   markAllRead: async () => (await api.post('/notifications/read-all')).data,
+};
+
+// ─────────────────────────── Tasks ─────────────────────────────
+export type TaskStatus = 'todo' | 'in_progress' | 'review' | 'done';
+export type TaskPriority = 'high' | 'medium' | 'low';
+export interface Task {
+  id: string;
+  title: string;
+  status: TaskStatus;
+  priority: TaskPriority;
+  dueDate: string | null;
+  createdAt: string;
+}
+export const tasksApi = {
+  list: async (): Promise<Task[]> => (await api.get('/tasks')).data,
+  create: async (title: string, priority: TaskPriority = 'medium'): Promise<Task> =>
+    (await api.post('/tasks', { title, priority })).data,
+  setStatus: async (id: string, status: TaskStatus): Promise<Task> =>
+    (await api.patch(`/tasks/${id}`, { status })).data,
+  remove: async (id: string) => (await api.delete(`/tasks/${id}`)).data,
+};
+
+// ────────────────────────── Calendar ───────────────────────────
+export interface CalendarEvent {
+  day: number;
+  date: string;
+  type: 'call' | 'fu' | 'task';
+  label: string;
+}
+export const calendarApi = {
+  events: async (year: number, month: number): Promise<CalendarEvent[]> =>
+    (await api.get('/calendar/events', { params: { year, month } })).data,
 };
 
 // ─────────────────────────── Config ────────────────────────────

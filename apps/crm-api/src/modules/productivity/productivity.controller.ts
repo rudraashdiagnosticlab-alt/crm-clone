@@ -1,7 +1,7 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Role } from '@crm/database';
-import { ProductivityService } from './productivity.service';
+import { ProductivityService, type Period } from './productivity.service';
 import { Roles } from '../../common/decorators/roles.decorator';
 
 @ApiTags('productivity')
@@ -12,8 +12,8 @@ export class ProductivityController {
 
   @Roles(Role.admin, Role.team_leader)
   @Get()
-  perCaller() {
-    return this.productivity.perCaller();
+  perCaller(@Query('period') period?: Period) {
+    return this.productivity.perCaller(period === 'week' || period === 'month' ? period : 'day');
   }
 
   @Roles(Role.admin, Role.team_leader)

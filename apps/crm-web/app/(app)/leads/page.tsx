@@ -36,9 +36,13 @@ export default function LeadsPage() {
 
   const { data: allLeads = [], isLoading } = useQuery({ queryKey: ['leads'], queryFn: leadsApi.list });
 
-  const stateOpts = optionsFrom(allLeads.map((l) => l.state), 'All States');
+  // States cascade from the selected timezone; cities from timezone + state.
+  const stateOpts = optionsFrom(
+    allLeads.filter((l) => !tz || l.timezone === tz).map((l) => l.state),
+    'All States',
+  );
   const cityOpts = optionsFrom(
-    allLeads.filter((l) => !state || l.state === state).map((l) => l.city),
+    allLeads.filter((l) => (!tz || l.timezone === tz) && (!state || l.state === state)).map((l) => l.city),
     'All Cities',
   );
 
@@ -94,7 +98,7 @@ export default function LeadsPage() {
       {/* Filter bar */}
       <div className="mb-[18px] flex flex-wrap items-center gap-2.5">
         <SearchInput value={q} onChange={setQ} placeholder="Search business, ID, phone, email…" className="min-w-[260px] flex-1" />
-        <FilterSelect icon={Clock} value={tz} onChange={setTz} options={[{ label: 'All Timezones', value: '' }, ...['EST', 'CST', 'MST', 'PST'].map((t) => ({ label: t, value: t }))]} />
+        <FilterSelect icon={Clock} value={tz} onChange={(v) => { setTz(v); setState(''); setCity(''); }} options={[{ label: 'All Timezones', value: '' }, ...['EST', 'CST', 'MST', 'PST'].map((t) => ({ label: t, value: t }))]} />
         <FilterSelect icon={MapPin} value={state} onChange={(v) => { setState(v); setCity(''); }} options={stateOpts} />
         <FilterSelect icon={Building2} value={city} onChange={setCity} options={cityOpts} />
         <FilterSelect icon={Filter} value={status} onChange={setStatus} options={STATUS_OPTS} />

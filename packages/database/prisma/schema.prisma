@@ -67,6 +67,19 @@ enum SpeakingSpeed {
   too_slow
 }
 
+enum TaskStatus {
+  todo
+  in_progress
+  review
+  done
+}
+
+enum TaskPriority {
+  high
+  medium
+  low
+}
+
 /// Lead → Quo integration sync state
 enum QuoSyncStatus {
   not_synced
@@ -106,6 +119,7 @@ model User {
   notifications     Notification[]
   aiSessions        AiTrainingSession[]
   coachingReports   VoiceCoachingReport[]
+  tasks             Task[]
 
   @@index([role])
   @@index([isActive])
@@ -332,6 +346,22 @@ model AiTrainingSession {
 
   @@index([userId])
   @@map("ai_training_sessions")
+}
+
+/// Personal task board (Workspace › Tasks)
+model Task {
+  id        String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  title     String
+  status    TaskStatus   @default(todo)
+  priority  TaskPriority @default(medium)
+  dueDate   DateTime?    @map("due_date")
+  ownerId   String       @map("owner_id") @db.Uuid
+  owner     User         @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  createdAt DateTime     @default(now()) @map("created_at")
+  updatedAt DateTime     @updatedAt @map("updated_at")
+
+  @@index([ownerId, status])
+  @@map("tasks")
 }
 
 /// DB-012 — AI voice-coaching analysis per call

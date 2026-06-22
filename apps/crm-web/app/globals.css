@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;450;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 @import "tailwindcss";
 
 /* Class-based dark mode (next-themes toggles `.dark` on <html>) */
@@ -12,36 +13,48 @@
   --color-card-foreground: hsl(var(--card-foreground));
   --color-primary: hsl(var(--primary));
   --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
   --color-muted: hsl(var(--muted));
   --color-muted-foreground: hsl(var(--muted-foreground));
   --color-border: hsl(var(--border));
+
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-display: "Space Grotesk", -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
   --radius-lg: var(--radius);
-  --radius-md: calc(var(--radius) - 2px);
+  --radius-md: calc(var(--radius) - 3px);
 }
 
+/* ── Ranger CRM — military-olive design tokens ──────────────────── */
 :root {
-  --background: 0 0% 100%;
-  --foreground: 222 47% 11%;
+  --background: 72 33% 97%;       /* bone */
+  --foreground: 86 21% 6%;        /* ink */
   --card: 0 0% 100%;
-  --card-foreground: 222 47% 11%;
-  --primary: 221 83% 53%;
-  --primary-foreground: 210 40% 98%;
-  --muted: 210 40% 96%;
-  --muted-foreground: 215 16% 47%;
-  --border: 214 32% 91%;
-  --radius: 0.5rem;
+  --card-foreground: 86 21% 6%;
+  --primary: 85 27% 25%;          /* olive-600 */
+  --primary-foreground: 0 0% 100%;
+  --accent: 39 79% 44%;           /* amber */
+  --accent-foreground: 86 21% 6%;
+  --muted: 76 38% 95%;            /* olive-050 */
+  --muted-foreground: 78 13% 40%;
+  --border: 74 26% 87%;           /* line */
+  --radius: 0.7rem;
 }
 
 .dark {
-  --background: 222 47% 11%;
-  --foreground: 210 40% 98%;
-  --card: 222 47% 14%;
-  --card-foreground: 210 40% 98%;
-  --primary: 217 91% 60%;
-  --primary-foreground: 222 47% 11%;
-  --muted: 217 33% 18%;
-  --muted-foreground: 215 20% 65%;
-  --border: 217 33% 22%;
+  --background: 86 26% 9%;
+  --foreground: 76 38% 95%;
+  --card: 86 24% 13%;
+  --card-foreground: 76 38% 95%;
+  --primary: 85 32% 42%;          /* olive-400 */
+  --primary-foreground: 86 26% 9%;
+  --accent: 39 70% 52%;
+  --accent-foreground: 86 26% 9%;
+  --muted: 86 18% 18%;
+  --muted-foreground: 83 22% 62%;
+  --border: 86 14% 22%;
 }
 
 @layer base {
@@ -52,5 +65,10 @@
   body {
     background-color: hsl(var(--background));
     color: hsl(var(--foreground));
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  ::selection {
+    background: hsl(85 40% 75%);
   }
 }

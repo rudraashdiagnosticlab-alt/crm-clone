@@ -7,13 +7,20 @@ function startOfToday() {
   return d;
 }
 
+export type Period = 'day' | 'week' | 'month';
+function since(period: Period): Date {
+  if (period === 'week') return new Date(Date.now() - 7 * 86400_000);
+  if (period === 'month') return new Date(Date.now() - 30 * 86400_000);
+  return startOfToday();
+}
+
 @Injectable()
 export class ProductivityService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** PRD-005 — per-caller productivity table. */
-  async perCaller() {
-    const today = startOfToday();
+  /** PRD-005 — per-caller productivity table, scoped to a period. */
+  async perCaller(period: Period = 'day') {
+    const today = since(period);
     const callers = await this.prisma.user.findMany({
       where: { role: 'employee', isActive: true },
       select: { id: true, name: true, email: true },
