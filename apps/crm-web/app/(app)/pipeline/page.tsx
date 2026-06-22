@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import { GitBranch, DollarSign, Percent, Clock } from 'lucide-react';
+import { GitBranch, DollarSign, Percent, Clock, MapPin, Building2 } from 'lucide-react';
 import { leadsApi, type Lead } from '@/lib/leads';
 import { PageHead, Avatar } from '@/components/page-head';
 import { KpiCard } from '@/components/dashboard/kpi-card';
@@ -27,14 +27,28 @@ export default function PipelinePage() {
   const router = useRouter();
   const [view, setView] = useState<View>('board');
   const [tz, setTz] = useState('');
+  const [state, setState] = useState('');
+  const [city, setCity] = useState('');
   const [q, setQ] = useState('');
   const { data: allLeads = [] } = useQuery({ queryKey: ['leads'], queryFn: leadsApi.list });
 
+  // Timezone → State → City: each level's options narrow to the picks above it.
   const tzOpts = optionsFrom(allLeads.map((l) => l.timezone), 'All Timezones');
+  const stateOpts = optionsFrom(
+    allLeads.filter((l) => !tz || l.timezone === tz).map((l) => l.state),
+    'All States',
+  );
+  const cityOpts = optionsFrom(
+    allLeads.filter((l) => (!tz || l.timezone === tz) && (!state || l.state === state)).map((l) => l.city),
+    'All Cities',
+  );
+
   const term = q.trim().toLowerCase();
   const leads = allLeads.filter(
     (l) =>
       (!tz || l.timezone === tz) &&
+      (!state || l.state === state) &&
+      (!city || l.city === city) &&
       (!term ||
         l.businessName.toLowerCase().includes(term) ||
         l.city.toLowerCase().includes(term) ||
@@ -46,7 +60,9 @@ export default function PipelinePage() {
     <div>
       <PageHead lead="Move deals across stages. Click a card to open the lead.">
         <SearchInput value={q} onChange={setQ} placeholder="Search deal or location…" className="min-w-[220px]" />
-        <FilterSelect icon={Clock} value={tz} onChange={setTz} options={tzOpts} />
+        <FilterSelect icon={Clock} value={tz} onChange={(v) => { setTz(v); setState(''); setCity(''); }} options={tzOpts} />
+        <FilterSelect icon={MapPin} value={state} onChange={(v) => { setState(v); setCity(''); }} options={stateOpts} />
+        <FilterSelect icon={Building2} value={city} onChange={setCity} options={cityOpts} />
         <Segmented options={VIEWS} value={view} onChange={setView} />
       </PageHead>
 

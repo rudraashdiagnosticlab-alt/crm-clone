@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import { RefreshCw, Plus, Phone, Mail, MapPin, Eye, Filter, Clock } from 'lucide-react';
+import { RefreshCw, Plus, Phone, Mail, MapPin, Eye, Filter, Clock, Building2 } from 'lucide-react';
 import { leadsApi } from '@/lib/leads';
 import { PageHead, Avatar } from '@/components/page-head';
 import { StatusPill } from '@/components/status-pill';
@@ -22,14 +22,28 @@ export default function ContactsPage() {
   const { data: allLeads = [] } = useQuery({ queryKey: ['leads'], queryFn: leadsApi.list });
   const [status, setStatus] = useState('');
   const [tz, setTz] = useState('');
+  const [state, setState] = useState('');
+  const [city, setCity] = useState('');
   const [q, setQ] = useState('');
 
+  // Timezone → State → City: each level's options narrow to the picks above it.
   const tzOpts = optionsFrom(allLeads.map((l) => l.timezone), 'All Timezones');
+  const stateOpts = optionsFrom(
+    allLeads.filter((l) => !tz || l.timezone === tz).map((l) => l.state),
+    'All States',
+  );
+  const cityOpts = optionsFrom(
+    allLeads.filter((l) => (!tz || l.timezone === tz) && (!state || l.state === state)).map((l) => l.city),
+    'All Cities',
+  );
+
   const term = q.trim().toLowerCase();
   const leads = allLeads.filter(
     (l) =>
       (!status || l.status === status) &&
       (!tz || l.timezone === tz) &&
+      (!state || l.state === state) &&
+      (!city || l.city === city) &&
       (!term ||
         l.businessName.toLowerCase().includes(term) ||
         l.phone.toLowerCase().includes(term) ||
@@ -47,7 +61,9 @@ export default function ContactsPage() {
 
       <div className="mb-[18px] flex flex-wrap items-center gap-2.5">
         <SearchInput value={q} onChange={setQ} placeholder="Search name, phone, email, location…" className="min-w-[260px] flex-1" />
-        <FilterSelect icon={Clock} value={tz} onChange={setTz} options={tzOpts} />
+        <FilterSelect icon={Clock} value={tz} onChange={(v) => { setTz(v); setState(''); setCity(''); }} options={tzOpts} />
+        <FilterSelect icon={MapPin} value={state} onChange={(v) => { setState(v); setCity(''); }} options={stateOpts} />
+        <FilterSelect icon={Building2} value={city} onChange={setCity} options={cityOpts} />
         <FilterSelect icon={Filter} value={status} onChange={setStatus} options={STATUS_OPTS} />
       </div>
 
