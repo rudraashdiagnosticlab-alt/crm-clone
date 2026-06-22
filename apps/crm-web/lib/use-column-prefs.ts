@@ -3,6 +3,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { tokenStore } from './api';
+import { loadServerPreferences, saveServerPreference, removeServerPreference } from './preferences';
+
+/** Server preference key for a table's column layout. */
+const serverKeyFor = (tableKey: string) => `cols:${tableKey}`;
 
 /** A single column definition for a customizable table. */
 export interface ColumnDef<T> {
@@ -48,6 +52,15 @@ function load(tableKey: string): StoredPrefs | null {
   }
 }
 
+function saveLocal(tableKey: string, value: StoredPrefs) {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(keyFor(tableKey), JSON.stringify(value));
+  } catch {
+    /* ignore quota / serialization errors */
+  }
+}
+
 export interface ColumnPrefs<T> {
   /** Visible columns, in the user's order — drives the rendered table. */
   visible: ColumnDef<T>[];
@@ -75,33 +88,46 @@ export function useColumnPrefs<T>(tableKey: string, columns: ColumnDef<T>[]): Co
   const [order, setOrder] = useState<string[]>(defaultOrder);
   const [hidden, setHidden] = useState<string[]>(defaultHidden);
 
-  // Load saved prefs once on mount and merge with the current column set.
+  // Load saved prefs and merge with the current column set. localStorage is
+  // applied instantly; the server copy (cross-device) is applied once it loads.
   useEffect(() => {
-    const saved = load(tableKey);
-    if (!saved) {
-      setOrder(defaultOrder);
-      setHidden(defaultHidden);
-      return;
-    }
-    const known = new Set(defaultOrder);
-    const mergedOrder = saved.order.filter((k) => known.has(k));
-    for (const k of defaultOrder) if (!mergedOrder.includes(k)) mergedOrder.push(k); // append new columns
-    const mergedHidden = saved.hidden.filter((k) => known.has(k));
-    // New columns flagged defaultHidden stay hidden unless the user saw them before.
-    for (const k of defaultHidden) if (!saved.order.includes(k)) mergedHidden.push(k);
-    setOrder(mergedOrder);
-    setHidden(mergedHidden);
+    let cancelled = false;
+    const applyMerged = (saved: StoredPrefs | null) => {
+      if (!saved) {
+        setOrder(defaultOrder);
+        setHidden(defaultHidden);
+        return;
+      }
+      const known = new Set(defaultOrder);
+      const mergedOrder = saved.order.filter((k) => known.has(k));
+      for (const k of defaultOrder) if (!mergedOrder.includes(k)) mergedOrder.push(k); // append new columns
+      const mergedHidden = saved.hidden.filter((k) => known.has(k));
+      // New columns flagged defaultHidden stay hidden unless the user saw them before.
+      for (const k of defaultHidden) if (!saved.order.includes(k)) mergedHidden.push(k);
+      setOrder(mergedOrder);
+      setHidden(mergedHidden);
+    };
+
+    applyMerged(load(tableKey)); // instant local
+    loadServerPreferences().then((all) => {
+      if (cancelled) return;
+      const sv = all[serverKeyFor(tableKey)] as StoredPrefs | undefined;
+      if (sv && sv.order) {
+        applyMerged(sv);
+        saveLocal(tableKey, sv); // refresh local cache from authoritative server copy
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tableKey, defaultOrder, defaultHidden]);
 
   const persist = useCallback(
     (nextOrder: string[], nextHidden: string[]) => {
-      if (typeof window === 'undefined') return;
-      try {
-        localStorage.setItem(keyFor(tableKey), JSON.stringify({ order: nextOrder, hidden: nextHidden }));
-      } catch {
-        /* ignore quota / serialization errors */
-      }
+      const value: StoredPrefs = { order: nextOrder, hidden: nextHidden };
+      saveLocal(tableKey, value); // instant
+      saveServerPreference(serverKeyFor(tableKey), value); // cross-device (debounced)
     },
     [tableKey],
   );
@@ -137,6 +163,7 @@ export function useColumnPrefs<T>(tableKey: string, columns: ColumnDef<T>[]): Co
     setOrder(defaultOrder);
     setHidden(defaultHidden);
     if (typeof window !== 'undefined') localStorage.removeItem(keyFor(tableKey));
+    removeServerPreference(serverKeyFor(tableKey));
   }, [tableKey, defaultOrder, defaultHidden]);
 
   const ordered = useMemo(

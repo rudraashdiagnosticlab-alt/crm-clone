@@ -120,10 +120,26 @@ model User {
   aiSessions        AiTrainingSession[]
   coachingReports   VoiceCoachingReport[]
   tasks             Task[]
+  preferences       UserPreference[]
 
   @@index([role])
   @@index([isActive])
   @@map("users")
+}
+
+/// Per-user UI preferences (key-value). Used for customizable table column
+/// layouts (key = "cols:<tableKey>", value = { order, hidden }), and reusable
+/// for other personal settings later.
+model UserPreference {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  key       String
+  value     Json
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([userId, key])
+  @@map("user_preferences")
 }
 
 /// DB-008 — extended caller/employee profile

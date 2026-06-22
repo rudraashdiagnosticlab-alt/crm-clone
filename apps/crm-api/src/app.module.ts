@@ -17,6 +17,7 @@ import { ActivitiesModule } from './modules/activities/activities.module';
 import { ConfigStatusModule } from './modules/config/config-status.module';
 import { TasksModule } from './modules/tasks/tasks.module';
 import { CalendarModule } from './modules/calendar/calendar.module';
+import { PreferencesModule } from './modules/preferences/preferences.module';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -39,6 +40,7 @@ import { HealthController } from './health.controller';
     ConfigStatusModule,
     TasksModule,
     CalendarModule,
+    PreferencesModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
