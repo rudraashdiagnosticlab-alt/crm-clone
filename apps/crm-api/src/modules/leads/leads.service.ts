@@ -82,16 +82,15 @@ export class LeadsService {
     for (let i = 0; i < dto.rows.length; i++) {
       const row = dto.rows[i];
       const n = i + 1;
-      if (!row.phone?.trim()) {
-        errors.push({ row: n, reason: 'Missing phone' });
-        continue;
+      const phoneKey = (row.phone ?? '').replace(/\D/g, '');
+      // No required fields — only skip duplicate phones within the same file.
+      if (phoneKey) {
+        if (seenInFile.has(phoneKey)) {
+          errors.push({ row: n, reason: 'Duplicate phone within file' });
+          continue;
+        }
+        seenInFile.add(phoneKey);
       }
-      const phoneKey = row.phone.replace(/\D/g, '');
-      if (seenInFile.has(phoneKey)) {
-        errors.push({ row: n, reason: 'Duplicate phone within file' });
-        continue;
-      }
-      seenInFile.add(phoneKey);
 
       // Only the provided (non-empty) columns; missing columns stay untouched.
       const data: Prisma.LeadUpdateInput = {};
@@ -114,31 +113,36 @@ export class LeadsService {
       setIf('leadCategory', row.leadCategory);
       const fu = row.nextFollowUpDate ? new Date(row.nextFollowUpDate) : undefined;
       if (fu && !isNaN(fu.getTime())) data.nextFollowUpDate = fu;
+      // Skip completely empty rows (nothing provided at all).
+      if (Object.keys(data).length === 0 && !row.caller?.trim()) continue;
+
       const assignedToId = await resolveAssigned(row.caller);
       const assignRel = assignedToId ? { assignedTo: { connect: { id: assignedToId } } } : {};
 
-      // Match an existing lead by leadId or phone (last 10 digits).
+      // Match an existing lead by leadId or phone (last 10 digits), if any.
       const last10 = phoneKey.slice(-10);
-      const existing = await this.prisma.lead.findFirst({
-        where: {
-          deletedAt: null,
-          OR: [...(row.leadId ? [{ leadId: row.leadId }] : []), { phone: { contains: last10 } }],
-        },
-        select: { id: true },
-      });
+      const existing = last10 || row.leadId
+        ? await this.prisma.lead.findFirst({
+            where: {
+              deletedAt: null,
+              OR: [...(row.leadId ? [{ leadId: row.leadId }] : []), ...(last10 ? [{ phone: { contains: last10 } }] : [])],
+            },
+            select: { id: true },
+          })
+        : null;
 
       if (existing) {
         await this.prisma.lead.update({ where: { id: existing.id }, data: { ...data, ...assignRel } });
         updated++;
       } else {
-        const missing = (['businessName', 'state', 'city'] as const).filter((k) => !(data as Record<string, unknown>)[k]);
-        if (missing.length) {
-          errors.push({ row: n, reason: `Missing ${missing.join(', ')} (required for a new lead)` });
-          continue;
-        }
+        // No required columns: missing core fields default to empty (fill later).
         await this.prisma.lead.create({
           data: {
             leadId: row.leadId ?? `L-${Date.now().toString(36).toUpperCase()}-${n}`,
+            businessName: '',
+            phone: '',
+            state: '',
+            city: '',
             timezone: Timezone.EST,
             status: LeadStatus.new,
             ...data,

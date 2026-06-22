@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { Upload, Check } from 'lucide-react';
+import { Upload, Check, AlertTriangle } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { importApi, type LeadRow } from '@/lib/crm';
 import { PageHead } from '@/components/page-head';
@@ -76,16 +76,29 @@ function normalize(key: keyof LeadRow, raw: string): string | undefined {
 // "Company-Name" and "companyname" all map to the same column.
 const normHeader = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
 
-function parseCsv(text: string): LeadRow[] {
+interface ParseResult {
+  rows: LeadRow[];
+  /** Per canonical column: the file header it matched (or null = not in file). */
+  matched: { label: string; header: string | null }[];
+  /** File headers that didn't map to any known column (ignored on import). */
+  unrecognized: string[];
+}
+
+function parseCsv(text: string): ParseResult {
   const lines = text.trim().split(/\r?\n/).filter((l) => l.trim());
-  if (lines.length < 2) return [];
-  const headers = splitCsvLine(lines[0]).map(normHeader);
+  if (lines.length < 2) return { rows: [], matched: [], unrecognized: [] };
+  const original = splitCsvLine(lines[0]);
+  const headers = original.map(normHeader);
   const colIdx = COLUMNS.map((col) => {
     const aliases = col.aliases.map(normHeader);
     return headers.findIndex((h) => h !== '' && aliases.includes(h));
   });
 
-  return lines.slice(1).map((line) => {
+  const matched = COLUMNS.map((col, ci) => ({ label: col.label, header: colIdx[ci] >= 0 ? original[colIdx[ci]] : null }));
+  const usedIdx = new Set(colIdx.filter((i) => i >= 0));
+  const unrecognized = original.filter((h, i) => h.trim() !== '' && !usedIdx.has(i));
+
+  const rows = lines.slice(1).map((line) => {
     const cells = splitCsvLine(line);
     const row: Record<string, string | undefined> = {};
     COLUMNS.forEach((col, ci) => {
@@ -111,6 +124,7 @@ function parseCsv(text: string): LeadRow[] {
       caller: row.caller,
     };
   });
+  return { rows, matched, unrecognized };
 }
 
 const SAMPLE = `${COLUMNS.map((c) => c.label).join(',')}
@@ -119,10 +133,19 @@ const SAMPLE = `${COLUMNS.map((c) => c.label).join(',')}
 
 export default function ImportPage() {
   const [rows, setRows] = useState<LeadRow[]>([]);
+  const [matched, setMatched] = useState<{ label: string; header: string | null }[]>([]);
+  const [unrecognized, setUnrecognized] = useState<string[]>([]);
   const [raw, setRaw] = useState('');
   const importMut = useMutation({ mutationFn: () => importApi.bulk(rows) });
 
-  function load(text: string) { setRaw(text); setRows(parseCsv(text)); importMut.reset(); }
+  function load(text: string) {
+    setRaw(text);
+    const res = parseCsv(text);
+    setRows(res.rows);
+    setMatched(res.matched);
+    setUnrecognized(res.unrecognized);
+    importMut.reset();
+  }
 
   // Accept CSV or Excel (.xlsx/.xls) — Excel sheets are converted to CSV and
   // run through the same quote-aware parser + column-alias mapping.
@@ -158,6 +181,30 @@ export default function ImportPage() {
           </p>
         </div>
       </div>
+
+      {rows.length > 0 && (
+        <div className="mt-[18px] rounded-2xl border bg-card p-[18px] shadow-sm">
+          <h3 className="mb-3 font-display text-[15px] font-semibold">Detected column mapping</h3>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {matched.map((m) => (
+              <div key={m.label} className="flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-[12.5px]">
+                <span className="font-medium">{m.label}</span>
+                {m.header ? (
+                  <span className="inline-flex items-center gap-1.5 text-muted-foreground"><Check className="h-3.5 w-3.5 text-[#3f7a32]" />{m.header}</span>
+                ) : (
+                  <span className="text-muted-foreground/60">not in file</span>
+                )}
+              </div>
+            ))}
+          </div>
+          {unrecognized.length > 0 && (
+            <div className="mt-3 flex items-start gap-2 rounded-md bg-[#fbf3e2] px-3 py-2 text-[12.5px] text-[#8a6a12]">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>Ignored unrecognized column{unrecognized.length > 1 ? 's' : ''}: {unrecognized.join(', ')}</span>
+            </div>
+          )}
+        </div>
+      )}
 
       {rows.length > 0 && (
         <div className="mt-[18px] overflow-hidden rounded-2xl border bg-card shadow-sm">
