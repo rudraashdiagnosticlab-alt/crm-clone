@@ -3,12 +3,12 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import { ListOrdered, CheckCircle2, Clock, Percent, Play, Phone, Filter } from 'lucide-react';
+import { ListOrdered, CheckCircle2, Clock, Percent, Play, Phone, Filter, MapPin, Building2 } from 'lucide-react';
 import { callsApi, formatDuration } from '@/lib/crm';
 import { PageHead } from '@/components/page-head';
 import { StatusPill } from '@/components/status-pill';
 import { KpiCard } from '@/components/dashboard/kpi-card';
-import { FilterSelect, SearchInput } from '@/components/filter-controls';
+import { FilterSelect, SearchInput, optionsFrom } from '@/components/filter-controls';
 
 const STATUS_OPTS = [
   { label: 'All Statuses', value: '' },
@@ -21,14 +21,31 @@ const STATUS_OPTS = [
 export default function QueuePage() {
   const router = useRouter();
   const [status, setStatus] = useState('');
+  const [tz, setTz] = useState('');
+  const [state, setState] = useState('');
+  const [city, setCity] = useState('');
   const [q, setQ] = useState('');
   const { data: dash } = useQuery({ queryKey: ['caller-dash'], queryFn: callsApi.dashboard });
   const { data: allLeads = [] } = useQuery({ queryKey: ['caller-leads'], queryFn: callsApi.myLeads });
+
+  // Timezone → State → City: each level's options narrow to the picks above it.
+  const tzOpts = optionsFrom(allLeads.map((l) => l.timezone), 'All Timezones');
+  const stateOpts = optionsFrom(
+    allLeads.filter((l) => !tz || l.timezone === tz).map((l) => l.state),
+    'All States',
+  );
+  const cityOpts = optionsFrom(
+    allLeads.filter((l) => (!tz || l.timezone === tz) && (!state || l.state === state)).map((l) => l.city),
+    'All Cities',
+  );
 
   const term = q.trim().toLowerCase();
   const leads = allLeads.filter(
     (l) =>
       (!status || l.status === status) &&
+      (!tz || l.timezone === tz) &&
+      (!state || l.state === state) &&
+      (!city || l.city === city) &&
       (!term ||
         l.businessName.toLowerCase().includes(term) ||
         l.phone.toLowerCase().includes(term) ||
@@ -54,6 +71,9 @@ export default function QueuePage() {
           <div><h3 className="font-display text-[15px] font-semibold">Call Queue</h3><div className="text-xs text-muted-foreground">{leads.length} of {allLeads.length} · today&apos;s assignments</div></div>
           <div className="flex flex-wrap items-center gap-2.5">
             <SearchInput value={q} onChange={setQ} placeholder="Search company, phone, location…" className="min-w-[220px]" />
+            <FilterSelect icon={Clock} value={tz} onChange={(v) => { setTz(v); setState(''); setCity(''); }} options={tzOpts} />
+            <FilterSelect icon={MapPin} value={state} onChange={(v) => { setState(v); setCity(''); }} options={stateOpts} />
+            <FilterSelect icon={Building2} value={city} onChange={setCity} options={cityOpts} />
             <FilterSelect icon={Filter} value={status} onChange={setStatus} options={STATUS_OPTS} />
           </div>
         </div>
