@@ -1,0 +1,26 @@
+import { Body, Controller, Get, Post } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { Role } from '@crm/database';
+import { Roles } from '../../common/decorators/roles.decorator';
+import { OpenPhoneService } from './openphone.service';
+import { SendSmsDto } from './dto/openphone.dto';
+
+@ApiTags('openphone')
+@ApiBearerAuth()
+@Controller('openphone')
+export class OpenPhoneController {
+  constructor(private readonly openphone: OpenPhoneService) {}
+
+  /** Live connection status + provisioned numbers (admin / team leader). */
+  @Roles(Role.admin, Role.team_leader)
+  @Get('status')
+  status() {
+    return this.openphone.status();
+  }
+
+  @Roles(Role.admin, Role.team_leader)
+  @Post('messages')
+  send(@Body() dto: SendSmsDto) {
+    return this.openphone.sendSms({ from: dto.from, to: [dto.to], content: dto.content });
+  }
+}

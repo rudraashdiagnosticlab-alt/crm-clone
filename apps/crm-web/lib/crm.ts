@@ -223,11 +223,23 @@ export interface ConfigStatus {
   calling: { provider: string; configured: boolean };
   ai: { provider: string; model: string | null; configured: boolean };
   quo: { configured: boolean; sandbox: boolean };
+  openphone: { provider: string; configured: boolean; sandbox: boolean };
   storage: { provider: string; configured: boolean };
   redis: { configured: boolean };
 }
 export const configApi = {
   status: async (): Promise<ConfigStatus> => (await api.get('/config/status')).data,
+};
+
+export interface OpenPhoneStatus {
+  provider: string;
+  sandbox: boolean;
+  connected: boolean;
+  phoneNumbers: { id: string; number: string; name?: string }[];
+  error: string | null;
+}
+export const openphoneApi = {
+  status: async (): Promise<OpenPhoneStatus> => (await api.get('/openphone/status')).data,
 };
 
 // ──────────────────────────── AI ───────────────────────────────

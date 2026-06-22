@@ -29,6 +29,11 @@ export class ConfigController {
         configured: has('QUO_BASE_URL') && has('QUO_API_KEY'),
         sandbox: !has('QUO_BASE_URL') || !has('QUO_API_KEY') || env.QUO_SANDBOX === 'true',
       },
+      openphone: {
+        provider: 'OpenPhone',
+        configured: has('OPENPHONE_API_KEY'),
+        sandbox: !has('OPENPHONE_API_KEY') || env.OPENPHONE_SANDBOX === 'true',
+      },
       storage: { provider: 'S3', configured: has('S3_ACCESS_KEY_ID') && has('S3_BUCKET') },
       redis: { configured: has('REDIS_URL') },
     };

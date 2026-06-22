@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Phone, Mic, Users, CheckCircle2, KeyRound, RefreshCw, Play, Download } from 'lucide-react';
-import { configApi } from '@/lib/crm';
+import { configApi, openphoneApi } from '@/lib/crm';
 import { PageHead, Avatar } from '@/components/page-head';
 import { KpiCard } from '@/components/dashboard/kpi-card';
 import { DataTable, type ColumnDef } from '@/components/data-table';
@@ -12,6 +12,7 @@ type SyncRow = (typeof SYNC)[number];
 
 const BASE_INTEGRATIONS = [
   { nm: 'OpenPhone', logo: 'OP', bg: '#5b5bd6', ds: 'Cloud calling, SMS & call recording. Primary dialer for the sales team.', connected: false, meta: 'Not connected' },
+  { nm: 'Quo', logo: 'QU', bg: '#42512f', ds: 'Lead sync — pushes qualified leads to Quo and tracks sync status.', connected: false, meta: 'Not connected' },
   { nm: 'Twilio', logo: 'TW', bg: '#f22f46', ds: 'Programmable voice API for auto-dialer and call queue routing.', connected: false, meta: 'Configure TWILIO_* in .env' },
   { nm: 'Aircall', logo: 'AC', bg: '#00b388', ds: 'Call center platform with live monitoring and analytics.', connected: false, meta: 'Not connected' },
   { nm: 'RingCentral', logo: 'RC', bg: '#0684bc', ds: 'Enterprise cloud communications and team messaging.', connected: false, meta: 'Not connected' },
@@ -36,12 +37,38 @@ type Tab = (typeof TABS)[number];
 export default function IntegrationsPage() {
   const [tab, setTab] = useState<Tab>('Connections');
   const { data: cfg } = useQuery({ queryKey: ['config-status'], queryFn: configApi.status, retry: false });
+  // Live OpenPhone check (lists workspace numbers) — also surfaces sandbox mode.
+  const { data: op } = useQuery({ queryKey: ['openphone-status'], queryFn: openphoneApi.status, retry: false });
 
-  // Twilio connection state reflects the live env config (/config/status).
-  const twilioOn = cfg?.calling.configured ?? false;
-  const INTEGRATIONS = BASE_INTEGRATIONS.map((i) =>
-    i.nm === 'Twilio' ? { ...i, connected: twilioOn, meta: twilioOn ? 'Connected · live credentials' : i.meta } : i,
-  );
+  // Connection state reflects live env config (/config/status) + OpenPhone probe.
+  const INTEGRATIONS = BASE_INTEGRATIONS.map((i) => {
+    if (i.nm === 'Twilio') {
+      const on = cfg?.calling.configured ?? false;
+      return { ...i, connected: on, meta: on ? 'Connected · live credentials' : i.meta };
+    }
+    if (i.nm === 'OpenPhone') {
+      const on = (cfg?.openphone.configured ?? false) && (op?.connected ?? false);
+      const sandbox = op?.sandbox ?? true;
+      return {
+        ...i,
+        connected: on,
+        meta: on
+          ? `Connected · ${op?.phoneNumbers.length ?? 0} number(s)`
+          : sandbox
+            ? 'Sandbox mode · set OPENPHONE_API_KEY to connect'
+            : op?.error ?? 'Not connected',
+      };
+    }
+    if (i.nm === 'Quo') {
+      const on = cfg?.quo.configured ?? false;
+      return {
+        ...i,
+        connected: on,
+        meta: on ? 'Connected · live credentials' : 'Sandbox mode · set QUO_BASE_URL + QUO_API_KEY',
+      };
+    }
+    return i;
+  });
   const activeConnections = INTEGRATIONS.filter((i) => i.connected).length;
 
   const syncColumns = useMemo<ColumnDef<SyncRow>[]>(() => [
