@@ -315,6 +315,7 @@ export const aiApi = {
 // ────────────────────────── Import ─────────────────────────────
 export interface ImportResult {
   imported: number;
+  updated: number;
   skipped: number;
   totalRows: number;
   errors: { row: number; reason: string }[];

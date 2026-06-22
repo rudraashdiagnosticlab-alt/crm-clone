@@ -13,7 +13,7 @@ import { PageHead, Avatar } from '@/components/page-head';
 import { KpiCard } from '@/components/dashboard/kpi-card';
 import { FilterSelect, SearchInput, optionsFrom } from '@/components/filter-controls';
 import { DataTable, type ColumnDef } from '@/components/data-table';
-import { downloadCsv } from '@/lib/export';
+import { downloadCsv, downloadXlsx } from '@/lib/export';
 
 const EMPTY: CreateLeadInput = { businessName: '', phone: '', email: '', state: '', city: '', timezone: 'EST' };
 
@@ -39,6 +39,9 @@ export default function LeadsPage() {
   const { data: allLeads = [], isLoading } = useQuery({ queryKey: ['leads'], queryFn: leadsApi.list });
   const { data: me } = useQuery({ queryKey: ['me'], queryFn: async () => (await api.get('/auth/me')).data, retry: false });
   const canManage = me?.role === 'admin' || me?.role === 'team_leader';
+
+  const EXPORT_HEADERS = ['PHONE', 'COMPANY NAME', 'NAME', 'TIME ZONE', 'EMAIL', 'INDUSTRY', 'TITLE', 'STATE', 'CITY', 'VLC', 'Employee Code', 'CALLER', 'STATUS', 'COMMENTS', 'NEXT FOLLOW UP DATE', 'LEAD CATEGORY'];
+  const exportRows = () => leads.map((l) => [l.phone, l.businessName, l.contactName ?? '', l.timezone, l.email ?? '', l.industry ?? '', l.title ?? '', l.state, l.city, l.vlc ?? '', l.employeeCode ?? '', l.assignedTo?.name ?? '', l.status, l.comments ?? '', l.nextFollowUpDate ? new Date(l.nextFollowUpDate).toLocaleDateString() : '', l.leadCategory ?? '']);
 
   // States cascade from the selected timezone; cities from timezone + state.
   const stateOpts = optionsFrom(
@@ -127,15 +130,18 @@ export default function LeadsPage() {
           </button>
         )}
         <button
-          onClick={() => downloadCsv(
-            'leads',
-            ['PHONE', 'COMPANY NAME', 'NAME', 'TIME ZONE', 'EMAIL', 'INDUSTRY', 'TITLE', 'STATE', 'CITY', 'VLC', 'Employee Code', 'CALLER', 'STATUS', 'COMMENTS', 'NEXT FOLLOW UP DATE', 'LEAD CATEGORY'],
-            leads.map((l) => [l.phone, l.businessName, l.contactName ?? '', l.timezone, l.email ?? '', l.industry ?? '', l.title ?? '', l.state, l.city, l.vlc ?? '', l.employeeCode ?? '', l.assignedTo?.name ?? '', l.status, l.comments ?? '', l.nextFollowUpDate ? new Date(l.nextFollowUpDate).toLocaleDateString() : '', l.leadCategory ?? '']),
-          )}
+          onClick={() => downloadCsv('leads', EXPORT_HEADERS, exportRows())}
           disabled={leads.length === 0}
           className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[13px] font-semibold hover:bg-muted disabled:opacity-50"
         >
-          <Download className="h-4 w-4" /> Export
+          <Download className="h-4 w-4" /> Export CSV
+        </button>
+        <button
+          onClick={() => downloadXlsx('leads', EXPORT_HEADERS, exportRows())}
+          disabled={leads.length === 0}
+          className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[13px] font-semibold hover:bg-muted disabled:opacity-50"
+        >
+          <Download className="h-4 w-4" /> Export Excel
         </button>
         {canManage && (
           <button onClick={() => setShowForm((v) => !v)} className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[13px] font-semibold text-primary-foreground shadow-sm hover:opacity-90">

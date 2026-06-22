@@ -1,4 +1,19 @@
-// Client-side export helpers — CSV download + print-to-PDF, no deps.
+// Client-side export helpers — CSV / Excel download + print-to-PDF.
+
+import * as XLSX from 'xlsx';
+
+/** Download rows as a real .xlsx workbook (opens natively in Excel). */
+export function downloadXlsx(
+  filename: string,
+  headers: string[],
+  rows: (string | number | null | undefined)[][],
+  sheetName = 'Sheet1',
+) {
+  const ws = XLSX.utils.aoa_to_sheet([headers, ...rows.map((r) => r.map((c) => c ?? ''))]);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, sheetName);
+  XLSX.writeFile(wb, filename.endsWith('.xlsx') ? filename : `${filename}.xlsx`);
+}
 
 function csvCell(v: unknown): string {
   const s = v == null ? '' : String(v);

@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { Timezone, LeadStatus, Role } from '@crm/database';
+import { Timezone, LeadStatus, Role, Prisma } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CreateLeadDto, ImportLeadsDto, ListLeadsQueryDto } from './dto/lead.dto';
@@ -58,83 +58,95 @@ export class LeadsService {
   }
 
   // IMP-001/005 + AI-004 — bulk import with per-row validation and dedupe.
+  /**
+   * IMP-001/005 — bulk upsert. Matches an existing lead by phone (or leadId)
+   * and UPDATES only the columns present in the row (missing columns are left
+   * untouched), so partial files fill in remaining data. Creates a new lead
+   * when no match exists (core fields required only then). Per-row validation
+   * — a single bad row never rejects the whole file.
+   */
   async bulkImport(dto: ImportLeadsDto) {
     const errors: Array<{ row: number; reason: string }> = [];
     const seenInFile = new Set<string>();
-    const toCreate: Array<{
-      leadId: string;
-      businessName: string;
-      phone: string;
-      email?: string;
-      state: string;
-      city: string;
-      timezone: Timezone;
-      status: LeadStatus;
-      contactName?: string;
-      industry?: string;
-      title?: string;
-      vlc?: string;
-      employeeCode?: string;
-      comments?: string;
-      leadCategory?: string;
-      nextFollowUpDate?: Date;
-      caller?: string;
-    }> = [];
-
-    dto.rows.forEach((row, i) => {
-      const n = i + 1;
-      if (!row.businessName?.trim()) return errors.push({ row: n, reason: 'Missing business name' });
-      if (!row.phone?.trim()) return errors.push({ row: n, reason: 'Missing phone' });
-      if (!row.state?.trim()) return errors.push({ row: n, reason: 'Missing state' });
-      if (!row.city?.trim()) return errors.push({ row: n, reason: 'Missing city' });
-      const phoneKey = row.phone.replace(/\D/g, '');
-      if (seenInFile.has(phoneKey)) return errors.push({ row: n, reason: 'Duplicate phone within file' });
-      seenInFile.add(phoneKey);
-      const fu = row.nextFollowUpDate ? new Date(row.nextFollowUpDate) : undefined;
-      toCreate.push({
-        leadId: row.leadId ?? `L-${Date.now().toString(36).toUpperCase()}-${n}`,
-        businessName: row.businessName,
-        phone: row.phone,
-        email: row.email,
-        state: row.state,
-        city: row.city,
-        timezone: row.timezone ?? Timezone.EST,
-        status: row.status ?? LeadStatus.new,
-        contactName: row.contactName,
-        industry: row.industry,
-        title: row.title,
-        vlc: row.vlc,
-        employeeCode: row.employeeCode,
-        comments: row.comments,
-        leadCategory: row.leadCategory,
-        nextFollowUpDate: fu && !isNaN(fu.getTime()) ? fu : undefined,
-        caller: row.caller,
-      });
-    });
-
-    // AI-004 — skip phones that already exist in the DB
     const callerCache = new Map<string, string | undefined>();
     let imported = 0;
-    let skipped = 0;
-    for (const { caller, ...data } of toCreate) {
-      const dupe = await this.prisma.lead.findFirst({
-        where: { deletedAt: null, OR: [{ phone: data.phone }, { leadId: data.leadId }] },
-        select: { id: true },
-      });
-      if (dupe) {
-        skipped++;
+    let updated = 0;
+
+    const resolveAssigned = async (caller?: string) => {
+      const key = caller?.trim().toLowerCase();
+      if (!key) return undefined;
+      if (!callerCache.has(key)) callerCache.set(key, await this.resolveCaller(caller));
+      return callerCache.get(key);
+    };
+
+    for (let i = 0; i < dto.rows.length; i++) {
+      const row = dto.rows[i];
+      const n = i + 1;
+      if (!row.phone?.trim()) {
+        errors.push({ row: n, reason: 'Missing phone' });
         continue;
       }
-      const key = caller?.trim().toLowerCase();
-      let assignedToId: string | undefined;
-      if (key) {
-        if (!callerCache.has(key)) callerCache.set(key, await this.resolveCaller(caller));
-        assignedToId = callerCache.get(key);
+      const phoneKey = row.phone.replace(/\D/g, '');
+      if (seenInFile.has(phoneKey)) {
+        errors.push({ row: n, reason: 'Duplicate phone within file' });
+        continue;
       }
-      await this.prisma.lead.create({
-        data: { ...data, ...(assignedToId ? { assignedTo: { connect: { id: assignedToId } } } : {}) },
+      seenInFile.add(phoneKey);
+
+      // Only the provided (non-empty) columns; missing columns stay untouched.
+      const data: Prisma.LeadUpdateInput = {};
+      const setIf = (key: keyof Prisma.LeadUpdateInput, v?: string) => {
+        if (v != null && String(v).trim() !== '') (data as Record<string, unknown>)[key] = String(v).trim();
+      };
+      setIf('businessName', row.businessName);
+      setIf('phone', row.phone);
+      setIf('email', row.email);
+      setIf('state', row.state);
+      setIf('city', row.city);
+      if (row.timezone) data.timezone = row.timezone as Timezone;
+      if (row.status) data.status = row.status as LeadStatus;
+      setIf('contactName', row.contactName);
+      setIf('industry', row.industry);
+      setIf('title', row.title);
+      setIf('vlc', row.vlc);
+      setIf('employeeCode', row.employeeCode);
+      setIf('comments', row.comments);
+      setIf('leadCategory', row.leadCategory);
+      const fu = row.nextFollowUpDate ? new Date(row.nextFollowUpDate) : undefined;
+      if (fu && !isNaN(fu.getTime())) data.nextFollowUpDate = fu;
+      const assignedToId = await resolveAssigned(row.caller);
+      const assignRel = assignedToId ? { assignedTo: { connect: { id: assignedToId } } } : {};
+
+      // Match an existing lead by leadId or phone (last 10 digits).
+      const last10 = phoneKey.slice(-10);
+      const existing = await this.prisma.lead.findFirst({
+        where: {
+          deletedAt: null,
+          OR: [...(row.leadId ? [{ leadId: row.leadId }] : []), { phone: { contains: last10 } }],
+        },
+        select: { id: true },
       });
-      imported++;
+
+      if (existing) {
+        await this.prisma.lead.update({ where: { id: existing.id }, data: { ...data, ...assignRel } });
+        updated++;
+      } else {
+        const missing = (['businessName', 'state', 'city'] as const).filter((k) => !(data as Record<string, unknown>)[k]);
+        if (missing.length) {
+          errors.push({ row: n, reason: `Missing ${missing.join(', ')} (required for a new lead)` });
+          continue;
+        }
+        await this.prisma.lead.create({
+          data: {
+            leadId: row.leadId ?? `L-${Date.now().toString(36).toUpperCase()}-${n}`,
+            timezone: Timezone.EST,
+            status: LeadStatus.new,
+            ...data,
+            ...assignRel,
+          } as Prisma.LeadCreateInput,
+        });
+        imported++;
+      }
     }
 
     // NTF-003 — alert managers that a new batch landed
@@ -146,7 +158,7 @@ export class LeadsService {
       );
     }
 
-    return { imported, skipped, errors, totalRows: dto.rows.length };
+    return { imported, updated, skipped: 0, errors, totalRows: dto.rows.length };
   }
 
   async findAll(query: ListLeadsQueryDto, user?: { id: string; role: Role }) {

@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Upload, Check } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { importApi, type LeadRow } from '@/lib/crm';
 import { PageHead } from '@/components/page-head';
 
@@ -115,6 +116,18 @@ export default function ImportPage() {
 
   function load(text: string) { setRaw(text); setRows(parseCsv(text)); importMut.reset(); }
 
+  // Accept CSV or Excel (.xlsx/.xls) — Excel sheets are converted to CSV and
+  // run through the same quote-aware parser + column-alias mapping.
+  function loadFile(file: File) {
+    const isExcel = /\.(xlsx|xls)$/i.test(file.name);
+    if (!isExcel) { file.text().then(load); return; }
+    file.arrayBuffer().then((buf) => {
+      const wb = XLSX.read(buf, { type: 'array' });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      load(XLSX.utils.sheet_to_csv(sheet));
+    });
+  }
+
   return (
     <div>
       <PageHead lead="Upload Excel/CSV using the standard lead columns. Preview, then import with dedupe." />
@@ -123,8 +136,8 @@ export default function ImportPage() {
         <label className="flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-[#ccd3ba] bg-background p-[34px] text-center transition-colors hover:border-[#94ab68]">
           <div className="mb-3 grid h-[52px] w-[52px] place-items-center rounded-[14px] bg-[#e7eed8] text-[#42512f]"><Upload className="h-6 w-6" /></div>
           <div className="font-semibold">Drop your file here or <span className="text-primary">browse</span></div>
-          <div className="mt-1 text-[12.5px] text-muted-foreground">CSV, XLSX up to 25MB</div>
-          <input type="file" accept=".csv,text/csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) f.text().then(load); }} />
+          <div className="mt-1 text-[12.5px] text-muted-foreground">CSV or Excel (.xlsx/.xls) up to 25MB</div>
+          <input type="file" accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) loadFile(f); }} />
         </label>
         <div className="rounded-2xl border bg-card p-4 shadow-sm">
           <div className="mb-2 flex items-center justify-between">
@@ -163,7 +176,7 @@ export default function ImportPage() {
 
       {importMut.isSuccess && (
         <div className="mt-4 rounded-md bg-[#e8f2e4] px-4 py-3 text-sm text-[#3f7a32]">
-          Imported {importMut.data.imported} · skipped {importMut.data.skipped} (duplicates) · {importMut.data.errors.length} errors
+          Created {importMut.data.imported} · updated {importMut.data.updated} (existing) · {importMut.data.errors.length} errors
           {importMut.data.errors.length > 0 && <ul className="mt-1 list-inside list-disc text-xs">{importMut.data.errors.slice(0, 5).map((e) => <li key={e.row}>Row {e.row}: {e.reason}</li>)}</ul>}
         </div>
       )}
