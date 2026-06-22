@@ -40,6 +40,29 @@ export function DataTable<T>({
   const [panelOpen, setPanelOpen] = useState(false);
   const cols = prefs.visible;
 
+  // Effective width for a column: user-set override → column default → auto.
+  const widthOf = (c: ColumnDef<T>): number | undefined => prefs.widths[c.key] ?? c.width;
+
+  // Drag the right edge of a header to resize that column (persisted per user).
+  const startResize = (e: React.MouseEvent, key: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const th = (e.currentTarget as HTMLElement).parentElement as HTMLElement;
+    const startW = th.getBoundingClientRect().width;
+    const startX = e.clientX;
+    const move = (me: MouseEvent) => prefs.setWidth(key, startW + (me.clientX - startX));
+    const up = () => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  };
+
   return (
     <div className="overflow-hidden rounded-2xl border bg-card shadow-sm">
       {(title || subtitle || toolbar) && (
@@ -59,9 +82,23 @@ export function DataTable<T>({
         <table className="w-full whitespace-nowrap text-[13px]">
           <thead>
             <tr className="border-b bg-background text-left text-[11px] uppercase tracking-[.06em] text-muted-foreground">
-              {cols.map((c) => (
-                <th key={c.key} className={`px-4 py-[11px] font-semibold ${c.headerClassName ?? ''}`}>{c.header}</th>
-              ))}
+              {cols.map((c) => {
+                const w = widthOf(c);
+                return (
+                  <th
+                    key={c.key}
+                    style={w ? { width: w, minWidth: w, maxWidth: w } : undefined}
+                    className={`group/th relative px-4 py-[11px] font-semibold ${c.headerClassName ?? ''}`}
+                  >
+                    <span className={w ? 'block truncate' : undefined}>{c.header}</span>
+                    <span
+                      onMouseDown={(e) => startResize(e, c.key)}
+                      title="Drag to resize"
+                      className="absolute right-0 top-0 z-10 h-full w-1.5 cursor-col-resize select-none bg-transparent hover:bg-primary/40"
+                    />
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>
@@ -77,18 +114,24 @@ export function DataTable<T>({
                 onClick={onRowClick ? () => onRowClick(row) : undefined}
                 className={`group border-b last:border-0 hover:bg-muted/50 ${onRowClick ? 'cursor-pointer' : ''} ${rowClassName}`}
               >
-                {cols.map((c) => (
-                  <td key={c.key} className={`px-4 py-3 ${c.cellClassName ?? ''}`}>{c.render(row, i)}</td>
-                ))}
+                {cols.map((c) => {
+                  const w = widthOf(c);
+                  return (
+                    <td key={c.key} style={w ? { maxWidth: w } : undefined} className={`px-4 py-3 ${w ? 'overflow-hidden text-ellipsis' : ''} ${c.cellClassName ?? ''}`}>{c.render(row, i)}</td>
+                  );
+                })}
               </tr>
             ))}
           </tbody>
           {!loading && rows.length > 0 && cols.some((c) => c.footer) && (
             <tfoot>
               <tr className="border-t bg-muted/30 font-semibold">
-                {cols.map((c) => (
-                  <td key={c.key} className={`px-4 py-3 ${c.cellClassName ?? ''}`}>{c.footer ? c.footer(rows) : null}</td>
-                ))}
+                {cols.map((c) => {
+                  const w = widthOf(c);
+                  return (
+                    <td key={c.key} style={w ? { maxWidth: w } : undefined} className={`px-4 py-3 ${w ? 'overflow-hidden text-ellipsis' : ''} ${c.cellClassName ?? ''}`}>{c.footer ? c.footer(rows) : null}</td>
+                  );
+                })}
               </tr>
             </tfoot>
           )}
@@ -157,7 +200,7 @@ function CustomizePanel<T>({
         <div className="flex items-center justify-between border-b px-5 py-4">
           <div>
             <h3 className="font-display text-[15px] font-semibold">Customize Columns</h3>
-            <p className="text-xs text-muted-foreground">Toggle and drag to reorder</p>
+            <p className="text-xs text-muted-foreground">Toggle, drag to reorder · drag a header edge to resize</p>
           </div>
           <button onClick={onClose} className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-muted"><X className="h-4 w-4" /></button>
         </div>

@@ -19,6 +19,8 @@ export interface ColumnDef<T> {
   defaultHidden?: boolean;
   /** Cannot be hidden or moved out (e.g. the primary identity column). */
   required?: boolean;
+  /** Default column width in px (user can resize from there). */
+  width?: number;
   headerClassName?: string;
   cellClassName?: string;
 }
@@ -26,6 +28,7 @@ export interface ColumnDef<T> {
 interface StoredPrefs {
   order: string[];
   hidden: string[];
+  widths?: Record<string, number>;
 }
 
 /** Decode the current user's id from the JWT so prefs are per-user. */
@@ -70,6 +73,10 @@ export interface ColumnPrefs<T> {
   toggle: (key: string) => void;
   /** Move the column with `key` to the position of `beforeKey` (drag-and-drop). */
   reorder: (key: string, beforeKey: string) => void;
+  /** User-set column widths (px), keyed by column key. */
+  widths: Record<string, number>;
+  /** Set/override a column's width (drag-to-resize). */
+  setWidth: (key: string, px: number) => void;
   reset: () => void;
   /** True when the layout differs from the column defaults. */
   customized: boolean;
@@ -87,6 +94,7 @@ export function useColumnPrefs<T>(tableKey: string, columns: ColumnDef<T>[]): Co
 
   const [order, setOrder] = useState<string[]>(defaultOrder);
   const [hidden, setHidden] = useState<string[]>(defaultHidden);
+  const [widths, setWidths] = useState<Record<string, number>>({});
 
   // Load saved prefs and merge with the current column set. localStorage is
   // applied instantly; the server copy (cross-device) is applied once it loads.
@@ -96,6 +104,7 @@ export function useColumnPrefs<T>(tableKey: string, columns: ColumnDef<T>[]): Co
       if (!saved) {
         setOrder(defaultOrder);
         setHidden(defaultHidden);
+        setWidths({});
         return;
       }
       const known = new Set(defaultOrder);
@@ -106,6 +115,7 @@ export function useColumnPrefs<T>(tableKey: string, columns: ColumnDef<T>[]): Co
       for (const k of defaultHidden) if (!saved.order.includes(k)) mergedHidden.push(k);
       setOrder(mergedOrder);
       setHidden(mergedHidden);
+      setWidths(saved.widths ?? {});
     };
 
     applyMerged(load(tableKey)); // instant local
@@ -124,8 +134,8 @@ export function useColumnPrefs<T>(tableKey: string, columns: ColumnDef<T>[]): Co
   }, [tableKey, defaultOrder, defaultHidden]);
 
   const persist = useCallback(
-    (nextOrder: string[], nextHidden: string[]) => {
-      const value: StoredPrefs = { order: nextOrder, hidden: nextHidden };
+    (nextOrder: string[], nextHidden: string[], nextWidths: Record<string, number>) => {
+      const value: StoredPrefs = { order: nextOrder, hidden: nextHidden, widths: nextWidths };
       saveLocal(tableKey, value); // instant
       saveServerPreference(serverKeyFor(tableKey), value); // cross-device (debounced)
     },
@@ -137,11 +147,11 @@ export function useColumnPrefs<T>(tableKey: string, columns: ColumnDef<T>[]): Co
       if (byKey.get(key)?.required) return;
       setHidden((h) => {
         const next = h.includes(key) ? h.filter((k) => k !== key) : [...h, key];
-        persist(order, next);
+        persist(order, next, widths);
         return next;
       });
     },
-    [byKey, order, persist],
+    [byKey, order, widths, persist],
   );
 
   const reorder = useCallback(
@@ -152,16 +162,29 @@ export function useColumnPrefs<T>(tableKey: string, columns: ColumnDef<T>[]): Co
         const idx = next.indexOf(beforeKey);
         if (idx < 0) next.push(key);
         else next.splice(idx, 0, key);
-        persist(next, hidden);
+        persist(next, hidden, widths);
         return next;
       });
     },
-    [hidden, persist],
+    [hidden, widths, persist],
+  );
+
+  const setWidth = useCallback(
+    (key: string, px: number) => {
+      const w = Math.max(60, Math.round(px));
+      setWidths((prev) => {
+        const next = { ...prev, [key]: w };
+        persist(order, hidden, next);
+        return next;
+      });
+    },
+    [order, hidden, persist],
   );
 
   const reset = useCallback(() => {
     setOrder(defaultOrder);
     setHidden(defaultHidden);
+    setWidths({});
     if (typeof window !== 'undefined') localStorage.removeItem(keyFor(tableKey));
     removeServerPreference(serverKeyFor(tableKey));
   }, [tableKey, defaultOrder, defaultHidden]);
@@ -176,8 +199,11 @@ export function useColumnPrefs<T>(tableKey: string, columns: ColumnDef<T>[]): Co
     [ordered, hiddenSet],
   );
   const customized = useMemo(
-    () => order.join() !== defaultOrder.join() || hidden.slice().sort().join() !== defaultHidden.slice().sort().join(),
-    [order, hidden, defaultOrder, defaultHidden],
+    () =>
+      order.join() !== defaultOrder.join() ||
+      hidden.slice().sort().join() !== defaultHidden.slice().sort().join() ||
+      Object.keys(widths).length > 0,
+    [order, hidden, widths, defaultOrder, defaultHidden],
   );
 
   return {
@@ -186,6 +212,8 @@ export function useColumnPrefs<T>(tableKey: string, columns: ColumnDef<T>[]): Co
     isHidden: useCallback((k: string) => hiddenSet.has(k), [hiddenSet]),
     toggle,
     reorder,
+    widths,
+    setWidth,
     reset,
     customized,
   };
