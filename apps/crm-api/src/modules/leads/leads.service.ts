@@ -102,8 +102,13 @@ export class LeadsService {
       setIf('email', row.email);
       setIf('state', row.state);
       setIf('city', row.city);
-      if (row.timezone) data.timezone = row.timezone as Timezone;
-      if (row.status) data.status = row.status as LeadStatus;
+      // Normalize + validate enums so a stray value can never crash the import.
+      const tz = (row.timezone ?? '').trim().toUpperCase();
+      if ((Object.values(Timezone) as string[]).includes(tz)) data.timezone = tz as Timezone;
+      const stRaw = (row.status ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+      const stAlias: Record<string, string> = { closed_won: 'closed', won: 'closed', lost: 'rejected', new_lead: 'new' };
+      const st = stAlias[stRaw] ?? stRaw;
+      if ((Object.values(LeadStatus) as string[]).includes(st)) data.status = st as LeadStatus;
       setIf('contactName', row.contactName);
       setIf('industry', row.industry);
       setIf('title', row.title);
