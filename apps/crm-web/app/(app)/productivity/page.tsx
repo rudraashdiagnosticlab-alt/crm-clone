@@ -1,12 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Phone, Clock, Percent, Star } from 'lucide-react';
-import { productivityApi, formatDuration, type Period } from '@/lib/crm';
+import { productivityApi, formatDuration, type Period, type CallerProductivity } from '@/lib/crm';
 import { PageHead, Avatar } from '@/components/page-head';
 import { KpiCard } from '@/components/dashboard/kpi-card';
 import { Segmented } from '@/components/segmented';
+import { DataTable, type ColumnDef } from '@/components/data-table';
 
 const PERIODS = [
   { label: 'Day', value: 'day' as Period },
@@ -24,6 +25,24 @@ export default function ProductivityPage() {
   const best = [...rows].sort((a, b) => b.callsToday - a.callsToday)[0];
   const maxConv = Math.max(1, ...rows.map((r) => r.conversionPct));
 
+  const columns = useMemo<ColumnDef<CallerProductivity>[]>(() => [
+    { key: 'caller', header: 'Caller', required: true, render: (r) => <div className="flex items-center gap-[10px]"><Avatar name={r.name} /><div className="font-semibold">{r.name}</div></div> },
+    { key: 'assigned', header: 'Assigned', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums', render: (r) => r.assigned },
+    { key: 'completed', header: 'Completed', headerClassName: 'text-right', cellClassName: 'text-right font-semibold tabular-nums', render: (r) => r.leadsCompleted },
+    { key: 'talk', header: 'Talk Time', headerClassName: 'text-right', cellClassName: 'text-right font-mono', render: (r) => formatDuration(r.productiveSecs) },
+    { key: 'conversion', header: 'Conversion', headerClassName: 'text-right', cellClassName: 'text-right font-bold tabular-nums text-primary', render: (r) => `${r.conversionPct}%` },
+    {
+      key: 'output', header: 'Output', cellClassName: 'min-w-[160px]',
+      render: (r) => (
+        <div className="flex items-center gap-[9px]">
+          <div className="h-2 flex-1 overflow-hidden rounded-full bg-[#e7eed8]">
+            <span className="block h-full rounded-full" style={{ width: `${(r.conversionPct / maxConv) * 100}%`, background: 'linear-gradient(90deg,#556b34,#6f8745)' }} />
+          </div>
+        </div>
+      ),
+    },
+  ], [maxConv]);
+
   return (
     <div>
       <PageHead lead="Productivity and conversion across the calling floor.">
@@ -37,42 +56,16 @@ export default function ProductivityPage() {
         <KpiCard icon={Star} iconBg="#e8f2e4" iconColor="#3f7a32" value={best?.name?.split(' ')[0] ?? '—'} label="Best Performer" />
       </div>
 
-      <div className="rounded-2xl border bg-card shadow-sm">
-        <div className="border-b px-[18px] py-4"><h3 className="font-display text-[15px] font-semibold">Caller Productivity</h3><div className="text-xs text-muted-foreground">Talk time, conversion, output</div></div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-[13px]">
-            <thead>
-              <tr className="border-b bg-background text-left text-[11px] uppercase tracking-[.06em] text-muted-foreground">
-                <th className="px-4 py-[11px] font-semibold">Caller</th>
-                <th className="px-4 py-[11px] text-right font-semibold">Assigned</th>
-                <th className="px-4 py-[11px] text-right font-semibold">Completed</th>
-                <th className="px-4 py-[11px] text-right font-semibold">Talk Time</th>
-                <th className="px-4 py-[11px] text-right font-semibold">Conversion</th>
-                <th className="px-4 py-[11px] font-semibold">Output</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.id} className="border-b last:border-0 hover:bg-muted/50">
-                  <td className="px-4 py-3"><div className="flex items-center gap-[10px]"><Avatar name={r.name} /><div className="font-semibold">{r.name}</div></div></td>
-                  <td className="px-4 py-3 text-right tabular-nums">{r.assigned}</td>
-                  <td className="px-4 py-3 text-right font-semibold tabular-nums">{r.leadsCompleted}</td>
-                  <td className="px-4 py-3 text-right font-mono">{formatDuration(r.productiveSecs)}</td>
-                  <td className="px-4 py-3 text-right font-bold tabular-nums text-primary">{r.conversionPct}%</td>
-                  <td className="px-4 py-3" style={{ minWidth: 160 }}>
-                    <div className="flex items-center gap-[9px]">
-                      <div className="h-2 flex-1 overflow-hidden rounded-full bg-[#e7eed8]">
-                        <span className="block h-full rounded-full" style={{ width: `${(r.conversionPct / maxConv) * 100}%`, background: 'linear-gradient(90deg,#556b34,#6f8745)' }} />
-                      </div>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {rows.length === 0 && <tr><td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">Loading…</td></tr>}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <DataTable
+        tableKey="productivity"
+        columns={columns}
+        rows={rows}
+        getRowKey={(r) => r.id}
+        title="Caller Productivity"
+        subtitle="Talk time, conversion, output"
+        loading={isFetching && rows.length === 0}
+        emptyText="No productivity data."
+      />
     </div>
   );
 }

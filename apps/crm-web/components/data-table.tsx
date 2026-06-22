@@ -2,9 +2,10 @@
 
 import { useState, type ReactNode } from 'react';
 import { SlidersHorizontal, GripVertical, X, RotateCcw } from 'lucide-react';
-import { useColumnPrefs, type ColumnDef } from '@/lib/use-column-prefs';
+import { useColumnPrefs, type ColumnDef, type ColumnPrefs } from '@/lib/use-column-prefs';
 
 export type { ColumnDef } from '@/lib/use-column-prefs';
+export { useColumnPrefs } from '@/lib/use-column-prefs';
 
 interface DataTableProps<T> {
   /** Stable key used to persist this table's column layout per user. */
@@ -49,15 +50,7 @@ export function DataTable<T>({
           </div>
           <div className="flex flex-wrap items-center gap-2.5">
             {toolbar}
-            <button
-              onClick={() => setPanelOpen(true)}
-              title="Customize columns"
-              className="inline-flex items-center gap-[7px] rounded-md border bg-card px-3 py-2 text-[13px] font-medium hover:bg-muted"
-            >
-              <SlidersHorizontal className="h-3.5 w-3.5 text-muted-foreground" />
-              Columns
-              {prefs.customized && <span className="h-1.5 w-1.5 rounded-full bg-primary" title="Customized" />}
-            </button>
+            <ColumnsButton onClick={() => setPanelOpen(true)} customized={prefs.customized} />
           </div>
         </div>
       )}
@@ -90,11 +83,50 @@ export function DataTable<T>({
               </tr>
             ))}
           </tbody>
+          {!loading && rows.length > 0 && cols.some((c) => c.footer) && (
+            <tfoot>
+              <tr className="border-t bg-muted/30 font-semibold">
+                {cols.map((c) => (
+                  <td key={c.key} className={`px-4 py-3 ${c.cellClassName ?? ''}`}>{c.footer ? c.footer(rows) : null}</td>
+                ))}
+              </tr>
+            </tfoot>
+          )}
         </table>
       </div>
 
       <CustomizePanel open={panelOpen} onClose={() => setPanelOpen(false)} prefs={prefs} />
     </div>
+  );
+}
+
+/** Standalone "Columns" button (matches the app's filter-bar styling). */
+export function ColumnsButton({ onClick, customized }: { onClick: () => void; customized?: boolean }) {
+  return (
+    <button
+      onClick={onClick}
+      title="Customize columns"
+      className="inline-flex items-center gap-[7px] rounded-md border bg-card px-3 py-2 text-[13px] font-medium hover:bg-muted"
+    >
+      <SlidersHorizontal className="h-3.5 w-3.5 text-muted-foreground" />
+      Columns
+      {customized && <span className="h-1.5 w-1.5 rounded-full bg-primary" title="Customized" />}
+    </button>
+  );
+}
+
+/**
+ * Self-contained Customize Columns control (button + side panel) for tables
+ * that render their own markup (e.g. dashboard widgets). Share the same `prefs`
+ * object you use to render the table.
+ */
+export function CustomizeColumnsControl<T>({ prefs }: { prefs: ColumnPrefs<T> }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <ColumnsButton onClick={() => setOpen(true)} customized={prefs.customized} />
+      <CustomizePanel open={open} onClose={() => setOpen(false)} prefs={prefs} />
+    </>
   );
 }
 

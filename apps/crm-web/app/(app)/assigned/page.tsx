@@ -1,14 +1,28 @@
 'use client';
 
+import { useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { RefreshCw, Plus, Pencil } from 'lucide-react';
-import { productivityApi } from '@/lib/crm';
+import { productivityApi, type CallerProductivity } from '@/lib/crm';
 import { PageHead, Avatar } from '@/components/page-head';
+import { DataTable, type ColumnDef } from '@/components/data-table';
 
 export default function AssignedPage() {
   const router = useRouter();
-  const { data: callers = [] } = useQuery({ queryKey: ['productivity'], queryFn: productivityApi.perCaller });
+  const { data: callers = [] } = useQuery({ queryKey: ['productivity'], queryFn: () => productivityApi.perCaller() });
+
+  const columns = useMemo<ColumnDef<CallerProductivity>[]>(() => [
+    { key: 'caller', header: 'Caller', required: true, render: (c) => <div className="flex items-center gap-[10px]"><Avatar name={c.name} size="md" /><span className="font-semibold">{c.name}</span></div> },
+    { key: 'assigned', header: 'Assigned', headerClassName: 'text-right', cellClassName: 'text-right font-semibold tabular-nums', render: (c) => c.assigned },
+    { key: 'completed', header: 'Completed', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums text-primary', render: (c) => c.leadsCompleted },
+    { key: 'pending', header: 'Pending', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums', render: (c) => c.assigned - c.leadsCompleted },
+    {
+      key: 'distribution', header: 'Distribution', cellClassName: 'min-w-[130px]',
+      render: (c) => { const pct = c.assigned ? Math.round((c.leadsCompleted / c.assigned) * 100) : 0; return <div className="h-2 overflow-hidden rounded-full bg-[#e7eed8]"><span className="block h-full rounded-full" style={{ width: `${pct}%`, background: 'linear-gradient(90deg,#556b34,#6f8745)' }} /></div>; },
+    },
+    { key: 'actions', header: '', required: true, render: () => <button onClick={() => router.push('/assignments')} className="grid h-[30px] w-[30px] place-items-center rounded-lg border hover:bg-primary hover:text-primary-foreground"><Pencil className="h-[15px] w-[15px]" /></button> },
+  ], [router]);
 
   return (
     <div>
@@ -35,39 +49,15 @@ export default function AssignedPage() {
         })}
       </div>
 
-      <div className="overflow-hidden rounded-2xl border bg-card shadow-sm">
-        <div className="border-b px-[18px] py-4"><h3 className="font-display text-[15px] font-semibold">Assignment Detail</h3></div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-[13px]">
-            <thead>
-              <tr className="border-b bg-background text-left text-[11px] uppercase tracking-[.06em] text-muted-foreground">
-                <th className="px-4 py-[11px] font-semibold">Caller</th>
-                <th className="px-4 py-[11px] text-right font-semibold">Assigned</th>
-                <th className="px-4 py-[11px] text-right font-semibold">Completed</th>
-                <th className="px-4 py-[11px] text-right font-semibold">Pending</th>
-                <th className="px-4 py-[11px] font-semibold">Distribution</th>
-                <th className="px-4 py-[11px] font-semibold"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {callers.map((c) => {
-                const pct = c.assigned ? Math.round((c.leadsCompleted / c.assigned) * 100) : 0;
-                return (
-                  <tr key={c.id} className="border-b last:border-0 hover:bg-muted/50">
-                    <td className="px-4 py-3"><div className="flex items-center gap-[10px]"><Avatar name={c.name} size="md" /><span className="font-semibold">{c.name}</span></div></td>
-                    <td className="px-4 py-3 text-right font-semibold tabular-nums">{c.assigned}</td>
-                    <td className="px-4 py-3 text-right tabular-nums text-primary">{c.leadsCompleted}</td>
-                    <td className="px-4 py-3 text-right tabular-nums">{c.assigned - c.leadsCompleted}</td>
-                    <td className="px-4 py-3" style={{ minWidth: 130 }}><div className="h-2 overflow-hidden rounded-full bg-[#e7eed8]"><span className="block h-full rounded-full" style={{ width: `${pct}%`, background: 'linear-gradient(90deg,#556b34,#6f8745)' }} /></div></td>
-                    <td className="px-4 py-3"><button onClick={() => router.push('/assignments')} className="grid h-[30px] w-[30px] place-items-center rounded-lg border hover:bg-primary hover:text-primary-foreground"><Pencil className="h-[15px] w-[15px]" /></button></td>
-                  </tr>
-                );
-              })}
-              {callers.length === 0 && <tr><td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">Loading…</td></tr>}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <DataTable
+        tableKey="assigned"
+        columns={columns}
+        rows={callers}
+        getRowKey={(c) => c.id}
+        title="Assignment Detail"
+        subtitle={`${callers.length} callers`}
+        emptyText="Loading…"
+      />
     </div>
   );
 }

@@ -1,13 +1,22 @@
 'use client';
 
+import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Flag, MapPin, Building2 } from 'lucide-react';
-import { targetsApi } from '@/lib/crm';
+import { targetsApi, type Target } from '@/lib/crm';
 import { PageHead } from '@/components/page-head';
 import { KpiCard } from '@/components/dashboard/kpi-card';
+import { DataTable, type ColumnDef } from '@/components/data-table';
 
 export default function TargetsPage() {
   const { data: targets = [], isLoading } = useQuery({ queryKey: ['targets'], queryFn: targetsApi.list });
+
+  const columns = useMemo<ColumnDef<Target>[]>(() => [
+    { key: 'timezone', header: 'Timezone', required: true, render: (t) => <span className="rounded-full bg-[#e7eed8] px-2 py-0.5 text-[11px] font-semibold text-[#42512f]">{t.timezone}</span> },
+    { key: 'state', header: 'State', render: (t) => t.state },
+    { key: 'city', header: 'City', cellClassName: 'font-semibold', render: (t) => t.city },
+    { key: 'target', header: 'Monthly Target', headerClassName: 'text-right', cellClassName: 'text-right font-mono tabular-nums', render: (t) => t.monthlyTarget.toLocaleString(), footer: (rows) => rows.reduce((a, t) => a + t.monthlyTarget, 0).toLocaleString() },
+  ], []);
   const totalTarget = targets.reduce((a, t) => a + t.monthlyTarget, 0);
   const cities = new Set(targets.map((t) => `${t.state}/${t.city}`)).size;
   const states = new Set(targets.map((t) => t.state)).size;
@@ -22,32 +31,16 @@ export default function TargetsPage() {
         <KpiCard icon={MapPin} iconBg="#fbf3e2" iconColor="#c98a18" value={states} label="States Covered" />
       </div>
 
-      <div className="overflow-hidden rounded-2xl border bg-card shadow-sm">
-        <div className="border-b px-[18px] py-4"><h3 className="font-display text-[15px] font-semibold">City Targets</h3><div className="text-xs text-muted-foreground">{targets.length} configured</div></div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-[13px]">
-            <thead>
-              <tr className="border-b bg-background text-left text-[11px] uppercase tracking-[.06em] text-muted-foreground">
-                <th className="px-4 py-[11px] font-semibold">Timezone</th>
-                <th className="px-4 py-[11px] font-semibold">State</th>
-                <th className="px-4 py-[11px] font-semibold">City</th>
-                <th className="px-4 py-[11px] text-right font-semibold">Monthly Target</th>
-              </tr>
-            </thead>
-            <tbody>
-              {isLoading && <tr><td colSpan={4} className="px-4 py-8 text-center text-muted-foreground">Loading…</td></tr>}
-              {targets.map((t) => (
-                <tr key={t.id} className="border-b last:border-0 hover:bg-muted/50">
-                  <td className="px-4 py-3"><span className="rounded-full bg-[#e7eed8] px-2 py-0.5 text-[11px] font-semibold text-[#42512f]">{t.timezone}</span></td>
-                  <td className="px-4 py-3">{t.state}</td>
-                  <td className="px-4 py-3 font-semibold">{t.city}</td>
-                  <td className="px-4 py-3 text-right font-mono tabular-nums">{t.monthlyTarget.toLocaleString()}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <DataTable
+        tableKey="targets"
+        columns={columns}
+        rows={targets}
+        getRowKey={(t) => t.id}
+        title="City Targets"
+        subtitle={`${targets.length} configured`}
+        loading={isLoading}
+        emptyText="No targets configured."
+      />
     </div>
   );
 }

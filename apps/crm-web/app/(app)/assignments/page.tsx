@@ -1,13 +1,15 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Shuffle, Users } from 'lucide-react';
-import { assignmentsApi } from '@/lib/crm';
+import { assignmentsApi, type AssignmentSummary } from '@/lib/crm';
 import { PageHead, Avatar } from '@/components/page-head';
 import { KpiCard } from '@/components/dashboard/kpi-card';
+import { DataTable, type ColumnDef } from '@/components/data-table';
 
 type Strategy = 'equal' | 'state' | 'timezone';
+type Caller = AssignmentSummary['callers'][number];
 
 export default function AssignmentsPage() {
   const qc = useQueryClient();
@@ -22,6 +24,17 @@ export default function AssignmentsPage() {
 
   const toggle = (id: string) => setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const totalAssigned = data?.callers.reduce((a, c) => a + c.leadCount, 0) ?? 0;
+
+  // Ref keeps the checkbox cell reading the latest selection without churning
+  // the column defs (which would otherwise reset prefs on every toggle).
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
+  const columns = useMemo<ColumnDef<Caller>[]>(() => [
+    { key: 'check', header: '', required: true, headerClassName: 'w-10', render: (c) => <input type="checkbox" checked={selectedRef.current.has(c.id)} readOnly className="pointer-events-none accent-[#42512f]" /> },
+    { key: 'caller', header: 'Caller', required: true, render: (c) => <div className="flex items-center gap-[10px]"><Avatar name={c.name} /><span className="font-semibold">{c.name}</span></div> },
+    { key: 'email', header: 'Email', cellClassName: 'text-muted-foreground', render: (c) => c.email },
+    { key: 'leads', header: 'Assigned Leads', headerClassName: 'text-right', cellClassName: 'text-right font-mono tabular-nums', render: (c) => c.leadCount },
+  ], []);
 
   return (
     <div>
@@ -51,31 +64,16 @@ export default function AssignmentsPage() {
         </div>
       )}
 
-      <div className="overflow-hidden rounded-2xl border bg-card shadow-sm">
-        <div className="border-b px-[18px] py-4"><h3 className="font-display text-[15px] font-semibold">Callers</h3><div className="text-xs text-muted-foreground">Select callers, then distribute</div></div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-[13px]">
-            <thead>
-              <tr className="border-b bg-background text-left text-[11px] uppercase tracking-[.06em] text-muted-foreground">
-                <th className="w-10 px-4 py-[11px]"></th>
-                <th className="px-4 py-[11px] font-semibold">Caller</th>
-                <th className="px-4 py-[11px] font-semibold">Email</th>
-                <th className="px-4 py-[11px] text-right font-semibold">Assigned Leads</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data?.callers.map((c) => (
-                <tr key={c.id} onClick={() => toggle(c.id)} className="cursor-pointer border-b last:border-0 hover:bg-muted/50">
-                  <td className="px-4 py-3"><input type="checkbox" checked={selected.has(c.id)} readOnly className="pointer-events-none accent-[#42512f]" /></td>
-                  <td className="px-4 py-3"><div className="flex items-center gap-[10px]"><Avatar name={c.name} /><span className="font-semibold">{c.name}</span></div></td>
-                  <td className="px-4 py-3 text-muted-foreground">{c.email}</td>
-                  <td className="px-4 py-3 text-right font-mono tabular-nums">{c.leadCount}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <DataTable
+        tableKey="assignments-callers"
+        columns={columns}
+        rows={data?.callers ?? []}
+        getRowKey={(c) => c.id}
+        title="Callers"
+        subtitle="Select callers, then distribute"
+        emptyText="No callers."
+        onRowClick={(c) => toggle(c.id)}
+      />
     </div>
   );
 }

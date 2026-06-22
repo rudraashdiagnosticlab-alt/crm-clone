@@ -1,6 +1,8 @@
 'use client';
 
+import { useMemo } from 'react';
 import { ArrowUpDown, ChevronLeft, ChevronRight, MoreHorizontal } from 'lucide-react';
+import { CustomizeColumnsControl, useColumnPrefs, type ColumnDef } from '@/components/data-table';
 
 export interface Column<T> {
   key: string;
@@ -31,14 +33,34 @@ export function WidgetCard<T>({
   const count = total ?? rows.length;
   const shown = Math.min(rows.length, 10);
 
+  // Adapt the widget's lightweight Column type to the shared ColumnDef so the
+  // same per-user Customize Columns control works here too.
+  const colDefs = useMemo<ColumnDef<T>[]>(
+    () =>
+      columns.map((c, i) => ({
+        key: c.key,
+        header: c.header,
+        required: i === 0,
+        headerClassName: c.className,
+        cellClassName: c.className,
+        render: c.cell ? c.cell : (row: T) => String((row as Record<string, unknown>)[c.key] ?? ''),
+      })),
+    [columns],
+  );
+  const prefs = useColumnPrefs(`widget:${title}`, colDefs);
+  const cols = prefs.visible;
+
   return (
     <section className="flex flex-col rounded-lg border bg-card shadow-sm">
       {/* Header */}
       <div className="flex items-center justify-between px-4 pt-3">
         <h2 className="text-sm font-semibold">{title}</h2>
-        <button className="text-muted-foreground hover:text-foreground" aria-label="More">
-          <MoreHorizontal className="h-4 w-4" />
-        </button>
+        <div className="flex items-center gap-1">
+          <CustomizeColumnsControl prefs={prefs} />
+          <button className="text-muted-foreground hover:text-foreground" aria-label="More">
+            <MoreHorizontal className="h-4 w-4" />
+          </button>
+        </div>
       </div>
 
       {/* Sort control */}
@@ -53,8 +75,8 @@ export function WidgetCard<T>({
         <table className="w-full border-collapse text-sm">
           <thead>
             <tr className="border-y bg-muted/40 text-left text-xs font-medium text-muted-foreground">
-              {columns.map((col) => (
-                <th key={col.key} className={`whitespace-nowrap px-4 py-2 font-medium ${col.className ?? ''}`}>
+              {cols.map((col) => (
+                <th key={col.key} className={`whitespace-nowrap px-4 py-2 font-medium ${col.headerClassName ?? ''}`}>
                   {col.header}
                 </th>
               ))}
@@ -64,7 +86,7 @@ export function WidgetCard<T>({
             {rows.length === 0 ? (
               <tr>
                 <td
-                  colSpan={columns.length}
+                  colSpan={cols.length}
                   className="px-4 py-12 text-center text-sm text-muted-foreground"
                 >
                   {emptyMessage}
@@ -73,14 +95,12 @@ export function WidgetCard<T>({
             ) : (
               rows.slice(0, 10).map((row, i) => (
                 <tr key={i} className="border-b last:border-0 hover:bg-muted/30">
-                  {columns.map((col) => (
+                  {cols.map((col) => (
                     <td
                       key={col.key}
-                      className={`whitespace-nowrap px-4 py-2.5 ${col.className ?? ''}`}
+                      className={`whitespace-nowrap px-4 py-2.5 ${col.cellClassName ?? ''}`}
                     >
-                      {col.cell
-                        ? col.cell(row)
-                        : String((row as Record<string, unknown>)[col.key] ?? '')}
+                      {col.render(row, i)}
                     </td>
                   ))}
                 </tr>

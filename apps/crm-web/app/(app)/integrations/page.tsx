@@ -1,11 +1,14 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Phone, Mic, Users, CheckCircle2, KeyRound, RefreshCw, Play, Download } from 'lucide-react';
 import { configApi } from '@/lib/crm';
 import { PageHead, Avatar } from '@/components/page-head';
 import { KpiCard } from '@/components/dashboard/kpi-card';
+import { DataTable, type ColumnDef } from '@/components/data-table';
+
+type SyncRow = (typeof SYNC)[number];
 
 const BASE_INTEGRATIONS = [
   { nm: 'OpenPhone', logo: 'OP', bg: '#5b5bd6', ds: 'Cloud calling, SMS & call recording. Primary dialer for the sales team.', connected: false, meta: 'Not connected' },
@@ -40,6 +43,15 @@ export default function IntegrationsPage() {
     i.nm === 'Twilio' ? { ...i, connected: twilioOn, meta: twilioOn ? 'Connected · live credentials' : i.meta } : i,
   );
   const activeConnections = INTEGRATIONS.filter((i) => i.connected).length;
+
+  const syncColumns = useMemo<ColumnDef<SyncRow>[]>(() => [
+    { key: 'time', header: 'Time', required: true, cellClassName: 'font-mono text-[12px]', render: (r) => r[0] },
+    { key: 'caller', header: 'Caller', render: (r) => <div className="flex items-center gap-[10px]"><Avatar name={r[1]} /><span className="font-semibold">{r[1]}</span></div> },
+    { key: 'lead', header: 'Lead', render: (r) => r[2] },
+    { key: 'source', header: 'Source', render: (r) => <span className="rounded bg-muted px-2 py-0.5 text-[11.5px] font-semibold">{r[3]}</span> },
+    { key: 'duration', header: 'Duration', cellClassName: 'font-mono', render: (r) => r[4] },
+    { key: 'status', header: 'Status', render: (r) => r[5] ? <span className="inline-flex items-center gap-1.5 rounded-full bg-[#e7eed8] px-2.5 py-[3px] text-[11.5px] font-semibold text-[#42512f]"><span className="h-1.5 w-1.5 rounded-full bg-[#42512f]" /> Synced</span> : <span className="inline-flex items-center gap-1.5 rounded-full bg-[#e7f0f8] px-2.5 py-[3px] text-[11.5px] font-semibold text-[#2c5d8f]"><span className="h-1.5 w-1.5 rounded-full bg-[#2c5d8f]" /> Syncing…</span> },
+  ], []);
 
   return (
     <div>
@@ -77,22 +89,16 @@ export default function IntegrationsPage() {
       )}
 
       {tab === 'Call Sync' && (
-        <div className="overflow-hidden rounded-2xl border bg-card shadow-sm">
-          <div className="flex items-center justify-between border-b px-[18px] py-4"><div><h3 className="font-display text-[15px] font-semibold">Call Sync Dashboard</h3><div className="text-xs text-muted-foreground">Live sync from connected dialers</div></div><span className="inline-flex items-center gap-1.5 rounded-full bg-[#e7eed8] px-2.5 py-[3px] text-[11.5px] font-semibold text-[#42512f]"><span className="h-1.5 w-1.5 rounded-full bg-[#42512f]" /> Auto-sync on</span></div>
-          <div className="overflow-x-auto"><table className="w-full text-[13px]">
-            <thead><tr className="border-b bg-background text-left text-[11px] uppercase tracking-[.06em] text-muted-foreground">{['Time', 'Caller', 'Lead', 'Source', 'Duration', 'Status'].map((h) => <th key={h} className="px-4 py-[11px] font-semibold">{h}</th>)}</tr></thead>
-            <tbody>{SYNC.map((r) => (
-              <tr key={r[0]} className="border-b last:border-0 hover:bg-muted/50">
-                <td className="px-4 py-3 font-mono text-[12px]">{r[0]}</td>
-                <td className="px-4 py-3"><div className="flex items-center gap-[10px]"><Avatar name={r[1]} /><span className="font-semibold">{r[1]}</span></div></td>
-                <td className="px-4 py-3">{r[2]}</td>
-                <td className="px-4 py-3"><span className="rounded bg-muted px-2 py-0.5 text-[11.5px] font-semibold">{r[3]}</span></td>
-                <td className="px-4 py-3 font-mono">{r[4]}</td>
-                <td className="px-4 py-3">{r[5] ? <span className="inline-flex items-center gap-1.5 rounded-full bg-[#e7eed8] px-2.5 py-[3px] text-[11.5px] font-semibold text-[#42512f]"><span className="h-1.5 w-1.5 rounded-full bg-[#42512f]" /> Synced</span> : <span className="inline-flex items-center gap-1.5 rounded-full bg-[#e7f0f8] px-2.5 py-[3px] text-[11.5px] font-semibold text-[#2c5d8f]"><span className="h-1.5 w-1.5 rounded-full bg-[#2c5d8f]" /> Syncing…</span>}</td>
-              </tr>
-            ))}</tbody>
-          </table></div>
-        </div>
+        <DataTable
+          tableKey="integrations-callsync"
+          columns={syncColumns}
+          rows={SYNC as unknown as SyncRow[]}
+          getRowKey={(r) => r[0]}
+          title="Call Sync Dashboard"
+          subtitle="Live sync from connected dialers"
+          emptyText="No synced calls."
+          toolbar={<span className="inline-flex items-center gap-1.5 rounded-full bg-[#e7eed8] px-2.5 py-[3px] text-[11.5px] font-semibold text-[#42512f]"><span className="h-1.5 w-1.5 rounded-full bg-[#42512f]" /> Auto-sync on</span>}
+        />
       )}
 
       {tab === 'Recordings' && (

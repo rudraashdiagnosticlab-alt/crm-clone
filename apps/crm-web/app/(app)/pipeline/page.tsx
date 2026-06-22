@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { GitBranch, DollarSign, Percent, Clock, MapPin, Building2 } from 'lucide-react';
@@ -10,6 +10,7 @@ import { KpiCard } from '@/components/dashboard/kpi-card';
 import { Segmented } from '@/components/segmented';
 import { StatusPill } from '@/components/status-pill';
 import { FilterSelect, SearchInput, optionsFrom } from '@/components/filter-controls';
+import { DataTable, type ColumnDef } from '@/components/data-table';
 
 type View = 'board' | 'list';
 const VIEWS = [{ label: 'Board', value: 'board' as View }, { label: 'List', value: 'list' as View }];
@@ -56,6 +57,13 @@ export default function PipelinePage() {
   );
   const openDeals = leads.filter((l) => l.status !== 'closed' && l.status !== 'rejected').length;
 
+  const columns = useMemo<ColumnDef<Lead>[]>(() => [
+    { key: 'deal', header: 'Deal', required: true, render: (d) => <div className="flex items-center gap-[10px]"><Avatar name={d.businessName} /><span className="font-semibold">{d.businessName}</span></div> },
+    { key: 'location', header: 'Location', render: (d) => `${d.city}, ${d.state}` },
+    { key: 'timezone', header: 'Timezone', render: (d) => <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold">{d.timezone}</span> },
+    { key: 'stage', header: 'Stage', render: (d) => <StatusPill status={d.status} /> },
+  ], []);
+
   return (
     <div>
       <PageHead lead="Move deals across stages. Click a card to open the lead.">
@@ -96,28 +104,14 @@ export default function PipelinePage() {
           })}
         </div>
       ) : (
-        <div className="overflow-hidden rounded-2xl border bg-card shadow-sm">
-          <div className="overflow-x-auto">
-            <table className="w-full text-[13px]">
-              <thead>
-                <tr className="border-b bg-background text-left text-[11px] uppercase tracking-[.06em] text-muted-foreground">
-                  {['Deal', 'Location', 'Timezone', 'Stage'].map((h) => <th key={h} className="px-4 py-[11px] font-semibold">{h}</th>)}
-                </tr>
-              </thead>
-              <tbody>
-                {leads.map((d) => (
-                  <tr key={d.id} onClick={() => router.push(`/leads/${d.id}`)} className="cursor-pointer border-b last:border-0 hover:bg-muted/50">
-                    <td className="px-4 py-3"><div className="flex items-center gap-[10px]"><Avatar name={d.businessName} /><span className="font-semibold">{d.businessName}</span></div></td>
-                    <td className="px-4 py-3">{d.city}, {d.state}</td>
-                    <td className="px-4 py-3"><span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold">{d.timezone}</span></td>
-                    <td className="px-4 py-3"><StatusPill status={d.status} /></td>
-                  </tr>
-                ))}
-                {leads.length === 0 && <tr><td colSpan={4} className="px-4 py-8 text-center text-muted-foreground">No deals.</td></tr>}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <DataTable
+          tableKey="pipeline-list"
+          columns={columns}
+          rows={leads}
+          getRowKey={(d) => d.id}
+          emptyText="No deals."
+          onRowClick={(d) => router.push(`/leads/${d.id}`)}
+        />
       )}
     </div>
   );

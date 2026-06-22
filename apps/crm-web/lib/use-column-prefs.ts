@@ -9,6 +9,8 @@ export interface ColumnDef<T> {
   key: string;
   header: string;
   render: (row: T, index: number) => ReactNode;
+  /** Optional footer cell (e.g. a totals row), rendered when any column has one. */
+  footer?: (rows: T[]) => ReactNode;
   /** Hidden by default until the user enables it. */
   defaultHidden?: boolean;
   /** Cannot be hidden or moved out (e.g. the primary identity column). */

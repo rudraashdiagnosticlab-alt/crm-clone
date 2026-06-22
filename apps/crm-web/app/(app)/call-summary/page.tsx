@@ -1,8 +1,10 @@
 'use client';
 
+import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Download } from 'lucide-react';
 import { productivityApi, type DailySummaryRow } from '@/lib/crm';
+import { DataTable, type ColumnDef } from '@/components/data-table';
 
 function toCsv(rows: DailySummaryRow[]): string {
   const header = 'Caller,Calls Made,Connected,Callbacks,Deals';
@@ -26,15 +28,17 @@ export default function CallSummaryPage() {
     URL.revokeObjectURL(url);
   }
 
-  const totals = rows.reduce(
-    (a, r) => ({
-      callsMade: a.callsMade + r.callsMade,
-      connected: a.connected + r.connected,
-      callbacks: a.callbacks + r.callbacks,
-      deals: a.deals + r.deals,
-    }),
-    { callsMade: 0, connected: 0, callbacks: 0, deals: 0 },
-  );
+  const sum = (key: keyof Pick<DailySummaryRow, 'callsMade' | 'connected' | 'callbacks' | 'deals'>) =>
+    rows.reduce((a, r) => a + r[key], 0);
+
+  const columns = useMemo<ColumnDef<DailySummaryRow>[]>(() => [
+    { key: 'caller', header: 'Caller', required: true, cellClassName: 'font-medium', render: (r) => r.name, footer: () => 'Total' },
+    { key: 'callsMade', header: 'Calls Made', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums', render: (r) => r.callsMade, footer: () => sum('callsMade') },
+    { key: 'connected', header: 'Connected', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums', render: (r) => r.connected, footer: () => sum('connected') },
+    { key: 'callbacks', header: 'Callbacks', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums', render: (r) => r.callbacks, footer: () => sum('callbacks') },
+    { key: 'deals', header: 'Deals', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums', render: (r) => r.deals, footer: () => sum('deals') },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  ], [rows]);
 
   return (
     <div className="space-y-5">
@@ -51,46 +55,16 @@ export default function CallSummaryPage() {
         </button>
       </div>
 
-      <div className="overflow-hidden rounded-lg border bg-card shadow-sm">
-        <table className="w-full text-sm">
-          <thead className="border-b bg-muted/50 text-left text-xs font-medium text-muted-foreground">
-            <tr>
-              <th className="px-4 py-2.5 font-medium">Caller</th>
-              <th className="px-4 py-2.5 text-right font-medium">Calls Made</th>
-              <th className="px-4 py-2.5 text-right font-medium">Connected</th>
-              <th className="px-4 py-2.5 text-right font-medium">Callbacks</th>
-              <th className="px-4 py-2.5 text-right font-medium">Deals</th>
-            </tr>
-          </thead>
-          <tbody>
-            {isLoading && (
-              <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">Loading…</td>
-              </tr>
-            )}
-            {rows.map((r) => (
-              <tr key={r.id} className="border-b last:border-0 hover:bg-muted/30">
-                <td className="px-4 py-2.5 font-medium">{r.name}</td>
-                <td className="px-4 py-2.5 text-right tabular-nums">{r.callsMade}</td>
-                <td className="px-4 py-2.5 text-right tabular-nums">{r.connected}</td>
-                <td className="px-4 py-2.5 text-right tabular-nums">{r.callbacks}</td>
-                <td className="px-4 py-2.5 text-right tabular-nums">{r.deals}</td>
-              </tr>
-            ))}
-          </tbody>
-          {rows.length > 0 && (
-            <tfoot>
-              <tr className="border-t bg-muted/30 font-semibold">
-                <td className="px-4 py-2.5">Total</td>
-                <td className="px-4 py-2.5 text-right tabular-nums">{totals.callsMade}</td>
-                <td className="px-4 py-2.5 text-right tabular-nums">{totals.connected}</td>
-                <td className="px-4 py-2.5 text-right tabular-nums">{totals.callbacks}</td>
-                <td className="px-4 py-2.5 text-right tabular-nums">{totals.deals}</td>
-              </tr>
-            </tfoot>
-          )}
-        </table>
-      </div>
+      <DataTable
+        tableKey="call-summary"
+        columns={columns}
+        rows={rows}
+        getRowKey={(r) => r.id}
+        title="Daily Call Summary"
+        subtitle={`${rows.length} callers`}
+        loading={isLoading}
+        emptyText="No summary data yet."
+      />
     </div>
   );
 }

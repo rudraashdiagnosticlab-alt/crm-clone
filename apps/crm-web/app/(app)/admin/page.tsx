@@ -36,7 +36,7 @@ export default function AdminPage() {
   const router = useRouter();
   const { data: activities = [] } = useQuery({ queryKey: ['activities'], queryFn: activitiesApi.list, retry: false });
   const { data: users = [] } = useQuery<{ id: string; isActive: boolean }[]>({ queryKey: ['users'], queryFn: async () => (await api.get('/users')).data, retry: false });
-  const { data: summary } = useQuery({ queryKey: ['metrics', 'summary'], queryFn: metricsApi.summary, retry: false });
+  const { data: summary } = useQuery({ queryKey: ['metrics', 'summary'], queryFn: () => metricsApi.summary(), retry: false });
   const activeUsers = users.filter((u) => u.isActive).length;
 
   return (
