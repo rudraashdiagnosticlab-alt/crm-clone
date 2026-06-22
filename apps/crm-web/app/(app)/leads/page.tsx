@@ -3,155 +3,181 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Upload, Download, Plus, Phone, Eye, Clock, MapPin, Building2, Filter, Target, Zap, Layers, Percent } from 'lucide-react';
 import { leadsApi, type CreateLeadInput } from '@/lib/leads';
+import { metricsApi } from '@/lib/crm';
 import { QuoStatusBadge } from '@/components/quo-status-badge';
+import { StatusPill } from '@/components/status-pill';
+import { PageHead, Avatar } from '@/components/page-head';
+import { KpiCard } from '@/components/dashboard/kpi-card';
+import { FilterSelect, SearchInput, optionsFrom } from '@/components/filter-controls';
+import { downloadCsv } from '@/lib/export';
 
-const EMPTY: CreateLeadInput = {
-  businessName: '',
-  phone: '',
-  email: '',
-  state: '',
-  city: '',
-  timezone: 'EST',
-};
+const EMPTY: CreateLeadInput = { businessName: '', phone: '', email: '', state: '', city: '', timezone: 'EST' };
+
+const STATUS_OPTS = [
+  { label: 'All Statuses', value: '' },
+  ...(['new', 'in_progress', 'contacted', 'interested', 'closed', 'rejected'] as const).map((s) => ({
+    label: s.replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
+    value: s,
+  })),
+];
 
 export default function LeadsPage() {
   const router = useRouter();
   const qc = useQueryClient();
   const [form, setForm] = useState<CreateLeadInput>(EMPTY);
   const [showForm, setShowForm] = useState(false);
+  const [tz, setTz] = useState('');
+  const [state, setState] = useState('');
+  const [city, setCity] = useState('');
+  const [status, setStatus] = useState('');
+  const [q, setQ] = useState('');
 
-  const { data: leads = [], isLoading } = useQuery({
-    queryKey: ['leads'],
-    queryFn: leadsApi.list,
-  });
+  const { data: allLeads = [], isLoading } = useQuery({ queryKey: ['leads'], queryFn: leadsApi.list });
+
+  const stateOpts = optionsFrom(allLeads.map((l) => l.state), 'All States');
+  const cityOpts = optionsFrom(
+    allLeads.filter((l) => !state || l.state === state).map((l) => l.city),
+    'All Cities',
+  );
+
+  const term = q.trim().toLowerCase();
+  const leads = allLeads.filter(
+    (l) =>
+      (!tz || l.timezone === tz) &&
+      (!state || l.state === state) &&
+      (!city || l.city === city) &&
+      (!status || l.status === status) &&
+      (!term ||
+        l.businessName.toLowerCase().includes(term) ||
+        l.leadId.toLowerCase().includes(term) ||
+        l.phone.toLowerCase().includes(term) ||
+        (l.email ?? '').toLowerCase().includes(term)),
+  );
+  const { data: s } = useQuery({ queryKey: ['metrics', 'summary'], queryFn: metricsApi.summary, retry: false });
 
   const create = useMutation({
     mutationFn: () => leadsApi.create({ ...form, email: form.email || undefined }),
     onSuccess: (lead) => {
       qc.invalidateQueries({ queryKey: ['leads'] });
-      router.push(`/leads/${lead.id}`); // straight to detail to send to Quo
+      router.push(`/leads/${lead.id}`);
     },
   });
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">
-          {leads.length} lead{leads.length === 1 ? '' : 's'} · click a row to open detail
-        </p>
-        <button
-          onClick={() => setShowForm((s) => !s)}
-          className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground"
-        >
-          {showForm ? 'Close' : '+ Create Lead'}
+    <div>
+      <PageHead lead="Master database of all leads across territories and timezones.">
+        <button onClick={() => router.push('/import')} className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[13px] font-semibold hover:bg-muted">
+          <Upload className="h-4 w-4" /> Import CSV
         </button>
+        <button
+          onClick={() => downloadCsv('leads', ['Lead ID', 'Business', 'Phone', 'Email', 'City', 'State', 'Timezone', 'Status'], leads.map((l) => [l.leadId, l.businessName, l.phone, l.email ?? '', l.city, l.state, l.timezone, l.status]))}
+          disabled={leads.length === 0}
+          className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[13px] font-semibold hover:bg-muted disabled:opacity-50"
+        >
+          <Download className="h-4 w-4" /> Export
+        </button>
+        <button onClick={() => setShowForm((v) => !v)} className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[13px] font-semibold text-primary-foreground shadow-sm hover:opacity-90">
+          <Plus className="h-4 w-4" /> {showForm ? 'Close' : 'Add Lead'}
+        </button>
+      </PageHead>
+
+      {/* KPIs */}
+      <div className="mb-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]">
+        <KpiCard icon={Target} iconBg="#e7f0f8" iconColor="#2c5d8f" value={(s?.totalLeads ?? 0).toLocaleString()} label="Total Leads" />
+        <KpiCard icon={Zap} iconBg="#e7eed8" iconColor="#42512f" value={(s?.plannedLeads ?? 0).toLocaleString()} label="Planned Leads" />
+        <KpiCard icon={Layers} iconBg="#fbf3e2" iconColor="#c98a18" value={(s?.balanceLeads ?? 0).toLocaleString()} label="Balance Leads" />
+        <KpiCard icon={Percent} iconBg="#e8f2e4" iconColor="#3f7a32" value={`${s?.progressPct ?? 0}%`} label="Progress to Target" />
       </div>
 
+      {/* Filter bar */}
+      <div className="mb-[18px] flex flex-wrap items-center gap-2.5">
+        <SearchInput value={q} onChange={setQ} placeholder="Search business, ID, phone, email…" className="min-w-[260px] flex-1" />
+        <FilterSelect icon={Clock} value={tz} onChange={setTz} options={[{ label: 'All Timezones', value: '' }, ...['EST', 'CST', 'MST', 'PST'].map((t) => ({ label: t, value: t }))]} />
+        <FilterSelect icon={MapPin} value={state} onChange={(v) => { setState(v); setCity(''); }} options={stateOpts} />
+        <FilterSelect icon={Building2} value={city} onChange={setCity} options={cityOpts} />
+        <FilterSelect icon={Filter} value={status} onChange={setStatus} options={STATUS_OPTS} />
+      </div>
+
+      {/* Create form */}
       {showForm && (
         <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            create.mutate();
-          }}
-          className="grid grid-cols-1 gap-3 rounded-lg border bg-card p-4 shadow-sm sm:grid-cols-2 lg:grid-cols-3"
+          onSubmit={(e) => { e.preventDefault(); create.mutate(); }}
+          className="mb-[18px] grid grid-cols-1 gap-3 rounded-2xl border bg-card p-4 shadow-sm sm:grid-cols-2 lg:grid-cols-3"
         >
-          {(
-            [
-              ['businessName', 'Business Name *'],
-              ['phone', 'Phone *'],
-              ['email', 'Email'],
-              ['state', 'State *'],
-              ['city', 'City *'],
-            ] as const
-          ).map(([key, label]) => (
+          {([['businessName', 'Business Name *'], ['phone', 'Phone *'], ['email', 'Email'], ['state', 'State *'], ['city', 'City *']] as const).map(([key, label]) => (
             <label key={key} className="space-y-1 text-sm">
               <span className="font-medium">{label}</span>
-              <input
-                value={(form as any)[key]}
-                onChange={(e) => setForm({ ...form, [key]: e.target.value })}
-                required={label.includes('*')}
-                className="w-full rounded-md border bg-background px-3 py-2"
-              />
+              <input value={(form as any)[key]} onChange={(e) => setForm({ ...form, [key]: e.target.value })} required={label.includes('*')} className="w-full rounded-md border bg-background px-3 py-2" />
             </label>
           ))}
           <label className="space-y-1 text-sm">
             <span className="font-medium">Timezone</span>
-            <select
-              value={form.timezone}
-              onChange={(e) => setForm({ ...form, timezone: e.target.value })}
-              className="w-full rounded-md border bg-background px-3 py-2"
-            >
-              {['EST', 'CST', 'MST', 'PST'].map((t) => (
-                <option key={t}>{t}</option>
-              ))}
+            <select value={form.timezone} onChange={(e) => setForm({ ...form, timezone: e.target.value })} className="w-full rounded-md border bg-background px-3 py-2">
+              {['EST', 'CST', 'MST', 'PST'].map((t) => <option key={t}>{t}</option>)}
             </select>
           </label>
           <div className="col-span-full flex items-center gap-3">
-            <button
-              type="submit"
-              disabled={create.isPending}
-              className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
-            >
+            <button type="submit" disabled={create.isPending} className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60">
               {create.isPending ? 'Creating…' : 'Create & open'}
             </button>
-            {create.isError && (
-              <span className="text-sm text-red-500">
-                {(create.error as any)?.response?.data?.message ?? 'Failed to create lead'}
-              </span>
-            )}
-            <span className="text-xs text-muted-foreground">
-              Tip: phone ending in <code>0000</code> simulates a Quo rejection.
-            </span>
+            {create.isError && <span className="text-sm text-[#9e2b21]">Failed to create lead</span>}
           </div>
         </form>
       )}
 
-      <div className="overflow-hidden rounded-lg border bg-card shadow-sm">
-        <table className="w-full text-sm">
-          <thead className="bg-muted/50 text-left text-muted-foreground">
-            <tr>
-              <th className="px-4 py-2 font-medium">Business</th>
-              <th className="px-4 py-2 font-medium">Phone</th>
-              <th className="px-4 py-2 font-medium">Location</th>
-              <th className="px-4 py-2 font-medium">Status</th>
-              <th className="px-4 py-2 font-medium">Quo</th>
-            </tr>
-          </thead>
-          <tbody>
-            {isLoading && (
-              <tr>
-                <td colSpan={5} className="px-4 py-6 text-center text-muted-foreground">
-                  Loading…
-                </td>
+      {/* Table */}
+      <div className="overflow-hidden rounded-2xl border bg-card shadow-sm">
+        <div className="flex items-center justify-between border-b px-[18px] py-4">
+          <div>
+            <h3 className="font-display text-[15px] font-semibold">All Leads</h3>
+            <div className="text-xs text-muted-foreground">{leads.length} shown</div>
+          </div>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-[13px]">
+            <thead>
+              <tr className="border-b bg-background text-left text-[11px] uppercase tracking-[.06em] text-muted-foreground">
+                <th className="px-4 py-[11px] font-semibold">Lead</th>
+                <th className="px-4 py-[11px] font-semibold">Contact</th>
+                <th className="px-4 py-[11px] font-semibold">Location</th>
+                <th className="px-4 py-[11px] font-semibold">TZ</th>
+                <th className="px-4 py-[11px] font-semibold">Status</th>
+                <th className="px-4 py-[11px] font-semibold">Quo</th>
+                <th className="px-4 py-[11px] font-semibold"></th>
               </tr>
-            )}
-            {!isLoading && leads.length === 0 && (
-              <tr>
-                <td colSpan={5} className="px-4 py-6 text-center text-muted-foreground">
-                  No leads yet — create one above.
-                </td>
-              </tr>
-            )}
-            {leads.map((lead) => (
-              <tr
-                key={lead.id}
-                onClick={() => router.push(`/leads/${lead.id}`)}
-                className="cursor-pointer border-t hover:bg-muted/40"
-              >
-                <td className="px-4 py-2 font-medium">{lead.businessName}</td>
-                <td className="px-4 py-2">{lead.phone}</td>
-                <td className="px-4 py-2">
-                  {lead.city}, {lead.state} · {lead.timezone}
-                </td>
-                <td className="px-4 py-2 capitalize">{lead.status.replace('_', ' ')}</td>
-                <td className="px-4 py-2">
-                  <QuoStatusBadge status={lead.quoStatus} />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {isLoading && <tr><td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">Loading…</td></tr>}
+              {!isLoading && leads.length === 0 && <tr><td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">{allLeads.length === 0 ? 'No leads yet — add one above.' : 'No leads match the current filters.'}</td></tr>}
+              {leads.map((l) => (
+                <tr key={l.id} className="group border-b last:border-0 hover:bg-muted/50">
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-[10px]">
+                      <Avatar name={l.businessName} />
+                      <div>
+                        <div className="font-semibold text-foreground">{l.businessName}</div>
+                        <div className="font-mono text-[11.5px] text-muted-foreground">{l.leadId}</div>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 font-mono text-[12px] text-muted-foreground">{l.phone}</td>
+                  <td className="px-4 py-3">{l.city}, {l.state}</td>
+                  <td className="px-4 py-3"><span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold">{l.timezone}</span></td>
+                  <td className="px-4 py-3"><StatusPill status={l.status} /></td>
+                  <td className="px-4 py-3"><QuoStatusBadge status={l.quoStatus} /></td>
+                  <td className="px-4 py-3">
+                    <div className="flex gap-1.5 opacity-50 transition-opacity group-hover:opacity-100">
+                      <button onClick={() => router.push('/calling')} title="Call" className="grid h-[30px] w-[30px] place-items-center rounded-lg border text-[#333f25] hover:bg-primary hover:text-primary-foreground dark:text-foreground"><Phone className="h-[15px] w-[15px]" /></button>
+                      <button onClick={() => router.push(`/leads/${l.id}`)} title="View" className="grid h-[30px] w-[30px] place-items-center rounded-lg border text-[#333f25] hover:bg-primary hover:text-primary-foreground dark:text-foreground"><Eye className="h-[15px] w-[15px]" /></button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );

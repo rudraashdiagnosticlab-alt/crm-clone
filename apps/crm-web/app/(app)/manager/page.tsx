@@ -1,71 +1,77 @@
 'use client';
 
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { Headphones, Phone, Clock, Percent, Filter } from 'lucide-react';
 import { productivityApi, formatDuration } from '@/lib/crm';
+import { PageHead, Avatar } from '@/components/page-head';
+import { StatusPill } from '@/components/status-pill';
+import { KpiCard } from '@/components/dashboard/kpi-card';
+import { FilterSelect, SearchInput } from '@/components/filter-controls';
 
-const STATUS_STYLE: Record<string, string> = {
-  'On Call': 'bg-green-100 text-green-700',
-  Idle: 'bg-muted text-muted-foreground',
-  'Wrap-up': 'bg-amber-100 text-amber-700',
-};
+const PRESENCE_OPTS = [
+  { label: 'All Statuses', value: '' },
+  { label: 'On Call', value: 'On Call' },
+  { label: 'Idle', value: 'Idle' },
+];
 
 export default function ManagerPage() {
-  const { data, isLoading } = useQuery({
-    queryKey: ['team-live'],
-    queryFn: productivityApi.teamLive,
-    refetchInterval: 10_000, // MGR-001 — live refresh
-  });
+  const { data: live } = useQuery({ queryKey: ['team-live'], queryFn: () => productivityApi.teamLive(), refetchInterval: 10_000 });
+  const { data: callers = [] } = useQuery({ queryKey: ['productivity'], queryFn: () => productivityApi.perCaller(), refetchInterval: 10_000 });
+  const [presence, setPresence] = useState('');
+  const [q, setQ] = useState('');
 
-  const kpis = data?.kpis;
+  const statusOf = (id: string) => live?.team.find((t) => t.id === id)?.status ?? 'Idle';
+  const onCall = live?.team.filter((t) => t.status === 'On Call').length ?? 0;
+  const k = live?.kpis;
 
-  const cards = [
-    { label: 'Total Calls Today', value: kpis?.totalCallsToday ?? 0 },
-    { label: 'Total Talk Time', value: formatDuration(kpis?.totalTalkSecs ?? 0) },
-    { label: 'Conversion Rate', value: `${kpis?.conversionRate ?? 0}%` },
-    { label: 'Best Performer', value: kpis?.bestPerformer ? `${kpis.bestPerformer.name} (${kpis.bestPerformer.calls})` : '—' },
-  ];
+  const term = q.trim().toLowerCase();
+  const shown = callers.filter(
+    (c) =>
+      (!presence || statusOf(c.id) === presence) &&
+      (!term || c.name.toLowerCase().includes(term) || (c.email ?? '').toLowerCase().includes(term)),
+  );
 
   return (
-    <div className="space-y-5">
-      <p className="text-sm text-muted-foreground">Live team status &amp; KPIs (MGR) · auto-refreshing</p>
+    <div>
+      <PageHead lead="Real-time floor status. Supervisor alerts fire when idle exceeds 20 minutes.">
+        <SearchInput value={q} onChange={setQ} placeholder="Search caller…" className="min-w-[200px]" />
+        <FilterSelect icon={Filter} value={presence} onChange={setPresence} options={PRESENCE_OPTS} />
+        <StatusPill status="On Call" kind="presence" />
+        <span className="text-[13px] font-semibold text-muted-foreground">{onCall} active now</span>
+      </PageHead>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {cards.map((c) => (
-          <div key={c.label} className="rounded-lg border bg-card p-4 shadow-sm">
-            <p className="text-sm text-muted-foreground">{c.label}</p>
-            <p className="mt-1 text-xl font-semibold">{c.value}</p>
-          </div>
-        ))}
+      <div className="mb-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]">
+        <KpiCard icon={Headphones} iconBg="#e8f2e4" iconColor="#3f7a32" value={onCall} label="On Call" />
+        <KpiCard icon={Phone} iconBg="#e7eed8" iconColor="#42512f" value={k?.totalCallsToday ?? 0} label="Calls Today" />
+        <KpiCard icon={Clock} iconBg="#e3f1ee" iconColor="#2f6f63" value={formatDuration(k?.totalTalkSecs ?? 0)} label="Talk Time Today" />
+        <KpiCard icon={Percent} iconBg="#fbf3e2" iconColor="#c98a18" value={`${k?.conversionRate ?? 0}%`} label="Conversion Rate" />
       </div>
 
-      <div className="overflow-hidden rounded-lg border bg-card shadow-sm">
-        <table className="w-full text-sm">
-          <thead className="border-b bg-muted/50 text-left text-xs font-medium text-muted-foreground">
-            <tr>
-              <th className="px-4 py-2.5 font-medium">Caller</th>
-              <th className="px-4 py-2.5 font-medium">Current Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {isLoading && (
-              <tr>
-                <td colSpan={2} className="px-4 py-8 text-center text-muted-foreground">
-                  Loading…
-                </td>
-              </tr>
-            )}
-            {data?.team.map((t) => (
-              <tr key={t.id} className="border-b last:border-0 hover:bg-muted/30">
-                <td className="px-4 py-2.5 font-medium">{t.name}</td>
-                <td className="px-4 py-2.5">
-                  <span className={`rounded px-2 py-0.5 text-xs font-medium ${STATUS_STYLE[t.status] ?? STATUS_STYLE.Idle}`}>
-                    {t.status}
-                  </span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div className="grid gap-[18px] md:grid-cols-2 xl:grid-cols-3">
+        {shown.map((c) => {
+          const status = statusOf(c.id);
+          const talkH = (c.productiveSecs / 3600).toFixed(1);
+          return (
+            <div key={c.id} className="rounded-2xl border bg-card p-[18px] shadow-sm">
+              <div className="mb-[14px] flex items-center gap-3">
+                <Avatar name={c.name} size="lg" />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[15px] font-bold">{c.name}</div>
+                  <div className="truncate text-[12.5px] text-muted-foreground">{c.email}</div>
+                </div>
+                <StatusPill status={status} kind="presence" />
+              </div>
+              <div className="grid grid-cols-2 gap-2.5 text-center">
+                <div className="rounded-[10px] bg-background p-2.5"><div className="font-display text-[18px] font-semibold">{c.callsToday}</div><div className="text-[11px] text-muted-foreground">Calls</div></div>
+                <div className="rounded-[10px] bg-background p-2.5"><div className="font-display text-[18px] font-semibold text-primary">{c.leadsCompleted}</div><div className="text-[11px] text-muted-foreground">Completed</div></div>
+                <div className="rounded-[10px] bg-background p-2.5"><div className="font-display text-[18px] font-semibold">{talkH}h</div><div className="text-[11px] text-muted-foreground">Talk</div></div>
+                <div className="rounded-[10px] bg-background p-2.5"><div className="font-display text-[18px] font-semibold">{c.conversionPct}%</div><div className="text-[11px] text-muted-foreground">Conversion</div></div>
+              </div>
+            </div>
+          );
+        })}
+        {shown.length === 0 && <p className="text-sm text-muted-foreground">{callers.length === 0 ? 'Loading team…' : 'No callers match the current filters.'}</p>}
       </div>
     </div>
   );

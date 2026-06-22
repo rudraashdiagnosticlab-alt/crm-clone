@@ -1,12 +1,22 @@
 'use client';
 
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Bell } from 'lucide-react';
+import { Bell, Filter } from 'lucide-react';
 import { notificationsApi } from '@/lib/crm';
+import { FilterSelect, SearchInput } from '@/components/filter-controls';
+
+const READ_OPTS = [
+  { label: 'All', value: '' },
+  { label: 'Unread', value: 'unread' },
+  { label: 'Read', value: 'read' },
+];
 
 export default function NotificationsPage() {
   const qc = useQueryClient();
-  const { data: items = [], isLoading } = useQuery({
+  const [readState, setReadState] = useState('');
+  const [q, setQ] = useState('');
+  const { data: allItems = [], isLoading } = useQuery({
     queryKey: ['notifications'],
     queryFn: notificationsApi.list,
   });
@@ -16,29 +26,42 @@ export default function NotificationsPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['notifications'] }),
   });
 
-  const unread = items.filter((n) => !n.isRead).length;
+  const unread = allItems.filter((n) => !n.isRead).length;
+
+  const term = q.trim().toLowerCase();
+  const items = allItems.filter(
+    (n) =>
+      (!readState || (readState === 'unread' ? !n.isRead : n.isRead)) &&
+      (!term || n.title.toLowerCase().includes(term) || (n.body ?? '').toLowerCase().includes(term)),
+  );
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2.5">
         <p className="text-sm text-muted-foreground">
-          {unread} unread · {items.length} total (NTF)
+          {unread} unread · {allItems.length} total
         </p>
-        {unread > 0 && (
-          <button
-            onClick={() => markAll.mutate()}
-            className="rounded-md border bg-card px-3 py-1.5 text-sm font-medium hover:bg-muted"
-          >
-            Mark all read
-          </button>
-        )}
+        <div className="flex flex-wrap items-center gap-2.5">
+          <SearchInput value={q} onChange={setQ} placeholder="Search notifications…" className="min-w-[220px]" />
+          <FilterSelect icon={Filter} value={readState} onChange={setReadState} options={READ_OPTS} />
+          {unread > 0 && (
+            <button
+              onClick={() => markAll.mutate()}
+              className="rounded-md border bg-card px-3 py-1.5 text-sm font-medium hover:bg-muted"
+            >
+              Mark all read
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="space-y-2">
         {isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
         {!isLoading && items.length === 0 && (
           <div className="rounded-lg border bg-card p-10 text-center text-sm text-muted-foreground shadow-sm">
-            No notifications yet. Import leads or complete calls to generate alerts.
+            {allItems.length === 0
+              ? 'No notifications yet. Import leads or complete calls to generate alerts.'
+              : 'No notifications match the current filters.'}
           </div>
         )}
         {items.map((n) => (
