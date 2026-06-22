@@ -4,7 +4,9 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  // rawBody: true exposes req.rawBody so webhook HMAC signatures can be verified
+  // against the exact bytes the provider signed.
+  const app = await NestFactory.create(AppModule, { rawBody: true });
 
   // SEC-007 — validate all inputs, strip unknown props
   app.useGlobalPipes(

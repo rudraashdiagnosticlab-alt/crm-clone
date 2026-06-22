@@ -24,7 +24,7 @@ export class IntegrationsController {
 
   @Put('openphone')
   async connectOpenPhone(@Body() dto: ConnectOpenPhoneDto) {
-    await this.config.set('openphone', { OPENPHONE_API_KEY: dto.apiKey, OPENPHONE_BASE_URL: dto.baseUrl });
+    await this.config.set('openphone', { OPENPHONE_API_KEY: dto.apiKey, OPENPHONE_BASE_URL: dto.baseUrl, OPENPHONE_WEBHOOK_SECRET: dto.webhookSecret });
     // Verify immediately by probing the live API (lists workspace numbers).
     const probe = await this.openphone.status();
     return { ...this.config.status().openphone, connected: probe.connected, error: probe.error, phoneNumbers: probe.phoneNumbers };

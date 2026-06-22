@@ -6,7 +6,7 @@ export type IntegrationProvider = 'openphone' | 'quo';
 
 /** Friendly field → env var mapping per provider. */
 const ENV_KEYS: Record<IntegrationProvider, string[]> = {
-  openphone: ['OPENPHONE_API_KEY', 'OPENPHONE_BASE_URL'],
+  openphone: ['OPENPHONE_API_KEY', 'OPENPHONE_BASE_URL', 'OPENPHONE_WEBHOOK_SECRET'],
   quo: ['QUO_BASE_URL', 'QUO_API_KEY'],
 };
 

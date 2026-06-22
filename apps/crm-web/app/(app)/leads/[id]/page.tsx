@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import { leadsApi } from '@/lib/leads';
+import { communicationsApi } from '@/lib/crm';
 import { QuoStatusBadge } from '@/components/quo-status-badge';
 
 export default function LeadDetailPage() {
@@ -14,6 +15,11 @@ export default function LeadDetailPage() {
   const { data: lead, isLoading } = useQuery({
     queryKey: ['lead', id],
     queryFn: () => leadsApi.get(id),
+  });
+
+  const { data: timeline = [] } = useQuery({
+    queryKey: ['lead', id, 'timeline'],
+    queryFn: () => communicationsApi.timeline(id),
   });
 
   const { data: logs = [] } = useQuery({
@@ -139,6 +145,43 @@ export default function LeadDetailPage() {
               ))}
             </div>
           </div>
+        </div>
+      </section>
+
+      {/* Conversation timeline — calls, SMS & notes (Quo / OpenPhone) */}
+      <section className="rounded-lg border bg-card p-5">
+        <h2 className="mb-4 text-sm font-semibold">Conversation Timeline</h2>
+        {timeline.length === 0 && (
+          <p className="text-sm text-muted-foreground">
+            No communications yet. Calls and SMS sync here automatically via Quo webhooks.
+          </p>
+        )}
+        <div className="space-y-2.5">
+          {timeline.map((t) => {
+            const inbound = t.direction === 'inbound';
+            const tone = t.kind === 'call' ? '#2c5d8f' : t.kind === 'message' ? '#42512f' : '#c98a18';
+            const label = t.kind === 'call' ? `${inbound ? 'Inbound' : 'Outbound'} call` : t.kind === 'message' ? `${inbound ? 'Inbound' : 'Outbound'} SMS` : 'Note';
+            return (
+              <div key={`${t.kind}-${t.id}`} className="flex gap-3 rounded-md border px-3 py-2.5">
+                <span className="mt-1 h-2 w-2 shrink-0 rounded-full" style={{ background: tone }} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[13px] font-semibold">
+                      {label}
+                      {t.status ? <span className="ml-2 font-normal text-muted-foreground">· {t.status}</span> : ''}
+                      {typeof t.durationSecs === 'number' ? <span className="ml-2 font-normal text-muted-foreground">· {t.durationSecs}s</span> : ''}
+                      {t.by ? <span className="ml-2 font-normal text-muted-foreground">· {t.by}</span> : ''}
+                    </span>
+                    <span className="shrink-0 text-[11.5px] text-muted-foreground">{new Date(t.at).toLocaleString()}</span>
+                  </div>
+                  {t.body && <p className="mt-1 whitespace-pre-wrap text-[13px] text-foreground">{t.body}</p>}
+                  {t.aiSummary && <p className="mt-1 text-[12.5px] text-muted-foreground"><strong>AI summary:</strong> {t.aiSummary}</p>}
+                  {t.transcript && <details className="mt-1 text-[12.5px] text-muted-foreground"><summary className="cursor-pointer">Transcript</summary><p className="mt-1 whitespace-pre-wrap">{t.transcript}</p></details>}
+                  {t.recordingUrl && <a href={t.recordingUrl} target="_blank" rel="noreferrer" className="mt-1 inline-block text-[12.5px] font-medium text-primary hover:underline">▶ Recording</a>}
+                </div>
+              </div>
+            );
+          })}
         </div>
       </section>
     </div>

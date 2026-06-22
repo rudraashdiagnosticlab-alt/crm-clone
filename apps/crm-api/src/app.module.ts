@@ -20,6 +20,7 @@ import { CalendarModule } from './modules/calendar/calendar.module';
 import { PreferencesModule } from './modules/preferences/preferences.module';
 import { OpenPhoneModule } from './modules/openphone/openphone.module';
 import { IntegrationsModule } from './modules/integrations/integrations.module';
+import { CommunicationsModule } from './modules/communications/communications.module';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -45,6 +46,7 @@ import { HealthController } from './health.controller';
     PreferencesModule,
     OpenPhoneModule,
     IntegrationsModule,
+    CommunicationsModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

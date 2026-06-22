@@ -11,6 +11,11 @@ export class ConnectOpenPhoneDto {
   @IsOptional()
   @IsString()
   baseUrl?: string;
+
+  @ApiPropertyOptional({ description: 'Webhook signing secret (HMAC-SHA256)' })
+  @IsOptional()
+  @IsString()
+  webhookSecret?: string;
 }
 
 export class ConnectQuoDto {

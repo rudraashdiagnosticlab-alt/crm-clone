@@ -223,10 +223,11 @@ function ConnectModal({
   const isOP = provider === 'openphone';
   const [apiKey, setApiKey] = useState('');
   const [url, setUrl] = useState(baseUrl || (isOP ? 'https://api.openphone.com/v1' : ''));
+  const [webhookSecret, setWebhookSecret] = useState('');
 
   const save = useMutation({
     mutationFn: () =>
-      isOP ? integrationsApi.connectOpenPhone(apiKey, url) : integrationsApi.connectQuo(url, apiKey),
+      isOP ? integrationsApi.connectOpenPhone(apiKey, url, webhookSecret || undefined) : integrationsApi.connectQuo(url, apiKey),
     onSuccess: (res: { connected?: boolean; error?: string | null }) => {
       // OpenPhone returns a live probe result; only close if it actually connected.
       if (isOP && res && res.connected === false) return;
@@ -257,10 +258,16 @@ function ConnectModal({
             <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} required placeholder={hint ? `Saved (${hint}) — enter to replace` : 'Paste API key'} className="w-full rounded-md border bg-background px-3 py-2 text-sm" />
           </label>
           {isOP && (
-            <label className="block space-y-1 text-sm">
-              <span className="font-medium">API Base URL <span className="text-muted-foreground">(optional)</span></span>
-              <input value={url} onChange={(e) => setUrl(e.target.value)} className="w-full rounded-md border bg-background px-3 py-2 text-sm" />
-            </label>
+            <>
+              <label className="block space-y-1 text-sm">
+                <span className="font-medium">API Base URL <span className="text-muted-foreground">(optional)</span></span>
+                <input value={url} onChange={(e) => setUrl(e.target.value)} className="w-full rounded-md border bg-background px-3 py-2 text-sm" />
+              </label>
+              <label className="block space-y-1 text-sm">
+                <span className="font-medium">Webhook Secret <span className="text-muted-foreground">(optional)</span></span>
+                <input type="password" value={webhookSecret} onChange={(e) => setWebhookSecret(e.target.value)} placeholder="For verifying inbound webhooks" className="w-full rounded-md border bg-background px-3 py-2 text-sm" />
+              </label>
+            </>
           )}
 
           {save.isError && <p className="text-[13px] text-[#9e2b21]">Could not save. Check the credentials and try again.</p>}

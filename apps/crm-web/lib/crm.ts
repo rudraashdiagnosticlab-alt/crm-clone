@@ -242,14 +242,32 @@ export const openphoneApi = {
   status: async (): Promise<OpenPhoneStatus> => (await api.get('/openphone/status')).data,
 };
 
+export interface TimelineItem {
+  kind: 'call' | 'message' | 'note';
+  id: string;
+  at: string;
+  direction?: 'inbound' | 'outbound';
+  status?: string | null;
+  durationSecs?: number | null;
+  recordingUrl?: string | null;
+  transcript?: string | null;
+  aiSummary?: string | null;
+  body?: string;
+  by?: string | null;
+}
+export const communicationsApi = {
+  timeline: async (leadId: string): Promise<TimelineItem[]> =>
+    (await api.get(`/communications/lead/${leadId}`)).data,
+};
+
 export interface IntegrationStatus {
   openphone: { provider: string; configured: boolean; sandbox: boolean; baseUrl: string; apiKeyHint: string | null };
   quo: { provider: string; configured: boolean; sandbox: boolean; baseUrl: string; apiKeyHint: string | null };
 }
 export const integrationsApi = {
   status: async (): Promise<IntegrationStatus> => (await api.get('/integrations/status')).data,
-  connectOpenPhone: async (apiKey: string, baseUrl?: string) =>
-    (await api.put('/integrations/openphone', { apiKey, baseUrl })).data,
+  connectOpenPhone: async (apiKey: string, baseUrl?: string, webhookSecret?: string) =>
+    (await api.put('/integrations/openphone', { apiKey, baseUrl, webhookSecret })).data,
   connectQuo: async (baseUrl: string, apiKey: string) =>
     (await api.put('/integrations/quo', { baseUrl, apiKey })).data,
   disconnect: async (provider: 'openphone' | 'quo') =>

@@ -188,6 +188,10 @@ model Lead {
   nextFollowUpDate DateTime? @map("next_follow_up_date") // NEXT FOLLOW UP DATE
   // CALLER → assignedTo (User relation below)
 
+  // ── Quo (OpenPhone) telephony ──
+  quoContactId        String?   @map("quo_contact_id") // provider contact id
+  lastCommunicationAt DateTime? @map("last_communication_at")
+
   // ── Quo integration (see modules/quo) ──
   quoStatus     QuoSyncStatus @default(not_synced) @map("quo_status")
   quoExternalId String?       @map("quo_external_id") // id returned by Quo
@@ -207,6 +211,7 @@ model Lead {
   notes       Note[]
   activities  Activity[]
   quoSyncLogs QuoSyncLog[]
+  messages    Message[]
 
   // DB-015 — indexes on every dashboard filter column
   @@unique([leadId])
@@ -309,13 +314,47 @@ model Call {
   providerSid  String?      @map("provider_sid") // Twilio call SID
   createdAt    DateTime     @default(now()) @map("created_at")
 
+  // ── Quo (OpenPhone) telephony ──
+  direction      CommDirection? // inbound / outbound
+  status         String? // provider call status (completed, missed, no-answer, …)
+  transcript     String? // AI call transcript
+  aiSummary      String?        @map("ai_summary") // AI call summary
+  quoCallId      String?        @map("quo_call_id") // provider call id
+  conversationId String?        @map("conversation_id")
+
   notes           Note[]
   coachingReport  VoiceCoachingReport?
 
   @@index([leadId])
   @@index([callerId])
   @@index([startTime])
+  @@index([quoCallId])
   @@map("calls")
+}
+
+enum CommDirection {
+  inbound
+  outbound
+}
+
+/// SMS / message synced from Quo (OpenPhone). Linked to a lead + conversation.
+model Message {
+  id             String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  leadId         String?       @map("lead_id") @db.Uuid
+  lead           Lead?         @relation(fields: [leadId], references: [id])
+  direction      CommDirection
+  body           String
+  fromNumber     String        @map("from_number")
+  toNumber       String        @map("to_number")
+  status         String? // queued, sent, delivered, received, failed
+  quoMessageId   String?       @map("quo_message_id")
+  conversationId String?       @map("conversation_id")
+  createdAt      DateTime      @default(now()) @map("created_at")
+
+  @@index([leadId])
+  @@index([conversationId])
+  @@index([quoMessageId])
+  @@map("messages")
 }
 
 /// DB-007 — call notes + follow-up
