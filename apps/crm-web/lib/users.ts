@@ -9,6 +9,8 @@ export interface User {
   role: UserRole;
   isActive: boolean;
   mfaEnabled?: boolean;
+  availability?: 'online' | 'offline';
+  shiftStart?: string | null;
   createdAt: string;
   updatedAt?: string;
 }
@@ -27,6 +29,8 @@ export interface UpdateUserInput {
   isActive?: boolean;
   /** Optional — only sent when changing the password. */
   password?: string;
+  /** Shift start "HH:mm" (or '' to clear) — enables no-login auto-reassignment. */
+  shiftStart?: string;
 }
 
 export const usersApi = {

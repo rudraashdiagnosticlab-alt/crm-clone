@@ -11,6 +11,10 @@ export class LeadsService {
     private readonly notifications: NotificationsService,
   ) {}
 
+  private async log(leadId: string, userId: string, action: string, oldValue: string | null, newValue: string | null, remarks?: string) {
+    await this.prisma.activity.create({ data: { leadId, userId, action, oldValue, newValue, remarks: remarks ?? null } });
+  }
+
   /** Resolve a free-text CALLER value (name or email) to a user id, if it
    * matches an existing user; otherwise undefined. Case-insensitive. */
   private async resolveCaller(caller?: string): Promise<string | undefined> {
@@ -21,6 +25,14 @@ export class LeadsService {
       select: { id: true },
     });
     return user?.id;
+  }
+
+  /** Reserve the next short sequential lead id, e.g. L-00001. */
+  private async nextLeadId(): Promise<string> {
+    const rows = await this.prisma.$queryRaw<Array<{ lead_id: string }>>(Prisma.sql`
+      SELECT 'L-' || LPAD(nextval('lead_seq')::text, 5, '0') AS lead_id
+    `);
+    return rows[0]?.lead_id ?? `L-${Date.now().toString(36).toUpperCase()}`;
   }
 
   /** Map the optional lead-sheet fields from a DTO to Prisma data. */
@@ -37,11 +49,11 @@ export class LeadsService {
     };
   }
 
-  async create(dto: CreateLeadDto) {
+  async create(dto: CreateLeadDto, userId?: string) {
     // IMP-006 — auto-generate lead_id if not provided
-    const leadId = dto.leadId ?? `L-${Date.now().toString(36).toUpperCase()}`;
+    const leadId = dto.leadId ?? (await this.nextLeadId());
     const assignedToId = await this.resolveCaller(dto.caller);
-    return this.prisma.lead.create({
+    const lead = await this.prisma.lead.create({
       data: {
         leadId,
         businessName: dto.businessName,
@@ -55,6 +67,11 @@ export class LeadsService {
         ...this.sheetFields(dto),
       },
     });
+    if (userId) {
+      await this.log(lead.id, userId, 'lead_created', null, lead.status, `Lead ${lead.leadId} created`);
+      if (assignedToId) await this.log(lead.id, userId, 'lead_assigned', null, assignedToId, 'Initial assignment');
+    }
+    return lead;
   }
 
   // IMP-001/005 + AI-004 — bulk import with per-row validation and dedupe.
@@ -65,7 +82,7 @@ export class LeadsService {
    * when no match exists (core fields required only then). Per-row validation
    * — a single bad row never rejects the whole file.
    */
-  async bulkImport(dto: ImportLeadsDto) {
+  async bulkImport(dto: ImportLeadsDto, userId?: string) {
     const errors: Array<{ row: number; reason: string }> = [];
     const seenInFile = new Set<string>();
     const callerCache = new Map<string, string | undefined>();
@@ -137,13 +154,14 @@ export class LeadsService {
         : null;
 
       if (existing) {
-        await this.prisma.lead.update({ where: { id: existing.id }, data: { ...data, ...assignRel } });
+        const updatedLead = await this.prisma.lead.update({ where: { id: existing.id }, data: { ...data, ...assignRel } });
+        if (userId) await this.log(updatedLead.id, userId, 'lead_updated', null, null, 'Imported row updated lead');
         updated++;
       } else {
         // No required columns: missing core fields default to empty (fill later).
-        await this.prisma.lead.create({
+        const created = await this.prisma.lead.create({
           data: {
-            leadId: row.leadId ?? `L-${Date.now().toString(36).toUpperCase()}-${n}`,
+            leadId: row.leadId ?? (await this.nextLeadId()),
             businessName: '',
             phone: '',
             state: '',
@@ -154,6 +172,7 @@ export class LeadsService {
             ...assignRel,
           } as Prisma.LeadCreateInput,
         });
+        if (userId) await this.log(created.id, userId, 'lead_created', null, created.status, 'Imported row created lead');
         imported++;
       }
     }

@@ -1,6 +1,5 @@
-import { IsDateString, IsEnum, IsInt, IsOptional, IsString, IsUUID, Min, MinLength } from 'class-validator';
+import { IsDateString, IsInt, IsOptional, IsString, IsUUID, Min, MinLength } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { CallOutcome } from '@crm/database';
 
 export class StartCallDto {
   @ApiProperty()
@@ -9,9 +8,10 @@ export class StartCallDto {
 }
 
 export class EndCallDto {
-  @ApiProperty({ enum: CallOutcome })
-  @IsEnum(CallOutcome)
-  outcome: CallOutcome;
+  @ApiProperty({ description: 'Outcome slug (see configurable Outcome list)' })
+  @IsString()
+  @MinLength(1)
+  outcome: string;
 
   @ApiPropertyOptional({ description: 'Duration in seconds; computed from start time if omitted' })
   @IsOptional()
@@ -23,6 +23,11 @@ export class EndCallDto {
   @IsOptional()
   @IsString()
   recordingUrl?: string;
+
+  @ApiPropertyOptional({ description: 'Callback or interested follow-up time in ISO format' })
+  @IsOptional()
+  @IsDateString()
+  callbackAt?: string;
 }
 
 export class CreateNoteDto {
@@ -35,4 +40,22 @@ export class CreateNoteDto {
   @IsOptional()
   @IsDateString()
   nextFollowupDate?: string;
+
+  @ApiPropertyOptional({ description: 'Reminder callback time in ISO format' })
+  @IsOptional()
+  @IsDateString()
+  callbackAt?: string;
+}
+
+export class UpdateFollowupDto {
+  @ApiPropertyOptional({ description: 'Updated follow-up note text' })
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  noteText?: string;
+
+  @ApiPropertyOptional({ description: 'Updated follow-up time in ISO format' })
+  @IsOptional()
+  @IsDateString()
+  followUpAt?: string;
 }

@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { QuoLeadPayload, QuoLeadResponse, QuoCallResult } from './quo.types';
+import { QuoLeadPayload, QuoLeadResponse, QuoCallResult, QuoQueueCallRequest, QuoQueueCallResult } from './quo.types';
 
 /**
  * Low-level HTTP client for Quo. Auth: API key header (per chosen config).
@@ -24,6 +24,63 @@ export class QuoClient {
 
   get isSandbox(): boolean {
     return process.env.QUO_SANDBOX === 'true' || !this.baseUrl || !this.apiKey;
+  }
+
+  /** The configured Quo call queue (all outbound calls route through it). */
+  get queueId(): string {
+    return process.env.QUO_QUEUE_ID ?? '';
+  }
+  get hasQueue(): boolean {
+    return !!this.queueId;
+  }
+
+  /**
+   * Place an outbound call through the configured Quo queue. Quo dials the lead
+   * and bridges the agent; the resulting call.* webhook enriches our Call record
+   * (status, duration, recording, transcript, AI summary).
+   */
+  async placeQueuedCall(req: QuoQueueCallRequest): Promise<QuoQueueCallResult> {
+    const startedAt = Date.now();
+    if (this.isSandbox) {
+      await new Promise((r) => setTimeout(r, 120));
+      return {
+        success: true,
+        statusCode: 200,
+        data: { id: `quo_call_${Math.random().toString(36).slice(2, 12)}`, status: 'queued', queueId: this.queueId || 'sandbox-queue' },
+        durationMs: Date.now() - startedAt,
+      };
+    }
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    try {
+      // Endpoint/field names follow Quo's queue-dial spec; adjust when finalized.
+      const res = await fetch(`${this.baseUrl}/queues/${encodeURIComponent(this.queueId)}/calls`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': this.apiKey },
+        body: JSON.stringify({ to: req.toNumber, agentId: req.agentId, leadId: req.leadId }),
+        signal: controller.signal,
+      });
+      const raw = (await res.json().catch(() => undefined)) as Record<string, unknown> | undefined;
+      const durationMs = Date.now() - startedAt;
+      if (!res.ok) {
+        return { success: false, statusCode: res.status, error: (raw?.message as string) ?? `Quo returned HTTP ${res.status}`, rawResponse: raw, durationMs };
+      }
+      return {
+        success: true,
+        statusCode: res.status,
+        data: { id: String(raw?.id ?? ''), status: String(raw?.status ?? 'queued'), queueId: this.queueId },
+        rawResponse: raw,
+        durationMs,
+      };
+    } catch (err) {
+      const e = err as { name?: string; message?: string };
+      const aborted = e?.name === 'AbortError';
+      this.logger.warn(`Quo queue call failed: ${e?.message}`);
+      return { success: false, error: aborted ? `Quo request timed out after ${this.timeoutMs}ms` : e?.message ?? 'Network error', durationMs: Date.now() - startedAt };
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   async createLead(payload: QuoLeadPayload): Promise<QuoCallResult> {

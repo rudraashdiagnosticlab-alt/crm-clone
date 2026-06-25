@@ -5,10 +5,13 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
-import { Phone, MessageSquare } from 'lucide-react';
+import { Phone, MessageSquare, Info } from 'lucide-react';
 import { leadsApi } from '@/lib/leads';
 import { communicationsApi } from '@/lib/crm';
 import { QuoStatusBadge } from '@/components/quo-status-badge';
+import { ZoomTimeline } from '@/components/zoom-timeline';
+import { LeadActivityDrawer } from '@/components/lead-activity-log';
+import { api } from '@/lib/api';
 
 const SMS_TEMPLATES: { label: string; text: (name: string) => string }[] = [
   { label: 'Intro', text: (n) => `Hi, this is the team at Milta reaching out about ${n}. Is now a good time to chat?` },
@@ -27,15 +30,28 @@ export default function LeadDetailPage() {
     queryFn: () => leadsApi.get(id),
   });
 
+  // Current user — the Activity Log is restricted to Admin & Team Lead.
+  const { data: me } = useQuery({ queryKey: ['me'], queryFn: async () => (await api.get('/auth/me')).data, retry: false });
+  const canSeeActivity = me?.role === 'admin' || me?.role === 'team_leader';
+  const [showActivity, setShowActivity] = useState(false);
+
   const { data: timeline = [] } = useQuery({
     queryKey: ['lead', id, 'timeline'],
     queryFn: () => communicationsApi.timeline(id),
   });
 
-  const refreshTimeline = () => qc.invalidateQueries({ queryKey: ['lead', id, 'timeline'] });
+  const refreshTimeline = () => {
+    qc.invalidateQueries({ queryKey: ['lead', id, 'timeline'] });
+    qc.invalidateQueries({ queryKey: ['lead', id, 'activities'] });
+  };
   const call = useMutation({
     mutationFn: () => communicationsApi.startCall(id),
-    onSuccess: (res) => { if (typeof window !== 'undefined') window.location.href = res.tel; refreshTimeline(); },
+    onSuccess: (res) => {
+      // Queue-routed (Quo): the call is placed server-side — no tel: handoff.
+      // Fallback (no queue): open the agent's dialer via the tel: link.
+      if (!res.queued && res.tel && typeof window !== 'undefined') window.location.href = res.tel;
+      refreshTimeline();
+    },
   });
   const sms = useMutation({
     mutationFn: () => communicationsApi.sendSms(id, smsBody),
@@ -73,14 +89,14 @@ export default function LeadDetailPage() {
         <Link href="/leads" className="text-sm text-muted-foreground hover:underline">
           ← Leads
         </Link>
-        <h1 className="text-lg font-semibold">{lead.businessName}</h1>
+        <h1 className="text-lg font-semibold">{lead.leadId}</h1>
         <div className="ml-auto flex items-center gap-2">
           <button
             onClick={() => call.mutate()}
             disabled={call.isPending}
             className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[13px] font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-60"
           >
-            <Phone className="h-4 w-4" /> {call.isPending ? 'Calling…' : 'Call'}
+            <Phone className="h-4 w-4" /> {call.isPending ? 'Dialing…' : call.data?.queued ? 'Queued via Quo' : 'Call'}
           </button>
           <button
             onClick={() => setSmsOpen((v) => !v)}
@@ -88,6 +104,16 @@ export default function LeadDetailPage() {
           >
             <MessageSquare className="h-4 w-4" /> Send SMS
           </button>
+          {canSeeActivity && (
+            <button
+              onClick={() => setShowActivity(true)}
+              title="Activity log"
+              aria-label="Activity log"
+              className="inline-flex items-center gap-2 rounded-md border bg-card px-[12px] py-[9px] text-[13px] font-semibold hover:bg-muted"
+            >
+              <Info className="h-4 w-4" /> Activity
+            </button>
+          )}
         </div>
       </div>
 
@@ -97,7 +123,7 @@ export default function LeadDetailPage() {
             <span className="text-[13px] font-semibold">Send SMS to {lead.phone}</span>
             <div className="ml-auto flex flex-wrap gap-1.5">
               {SMS_TEMPLATES.map((t) => (
-                <button key={t.label} onClick={() => setSmsBody(t.text(lead.businessName))} className="rounded-full border px-2.5 py-1 text-[11.5px] font-medium hover:bg-muted">
+                <button key={t.label} onClick={() => setSmsBody(t.text(lead.contactName ?? lead.leadId))} className="rounded-full border px-2.5 py-1 text-[11.5px] font-medium hover:bg-muted">
                   {t.label}
                 </button>
               ))}
@@ -244,6 +270,14 @@ export default function LeadDetailPage() {
           })}
         </div>
       </section>
+
+      {/* Complete Zoom meeting history/timeline for this client */}
+      <ZoomTimeline leadId={id} />
+
+      {/* Full audit trail — opened from the Info (ⓘ) action; Admin & Team Lead only */}
+      {canSeeActivity && showActivity && (
+        <LeadActivityDrawer leadId={id} leadName={lead.businessName} onClose={() => setShowActivity(false)} />
+      )}
     </div>
   );
 }

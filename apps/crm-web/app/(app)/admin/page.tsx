@@ -8,6 +8,8 @@ import { activitiesApi, metricsApi } from '@/lib/crm';
 import { api } from '@/lib/api';
 import { PageHead } from '@/components/page-head';
 import { KpiCard } from '@/components/dashboard/kpi-card';
+import { EmailNotificationSettings } from '@/components/admin/email-notification-settings';
+import { OutcomeManagement } from '@/components/admin/outcome-management';
 
 function Toggle({ on: initial }: { on: boolean }) {
   const [on, setOn] = useState(initial);
@@ -75,6 +77,11 @@ export default function AdminPage() {
             {activities.length === 0 && <p className="py-6 text-center text-sm text-muted-foreground">No events yet.</p>}
           </div>
         </div>
+      </div>
+
+      <div className="mt-[18px] grid gap-[18px] lg:grid-cols-2">
+        <EmailNotificationSettings />
+        <OutcomeManagement />
       </div>
 
       <div className="mt-[18px] rounded-2xl border bg-card shadow-sm">

@@ -1,0 +1,111 @@
+'use client';
+
+import { useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Circle, Power, Phone, PhoneForwarded, Clock, Video, SquareKanban, ArrowRightLeft, X } from 'lucide-react';
+import { availabilityApi, REASSIGN_LABEL, OFFLINE_REASONS, type ReassignType } from '@/lib/availability';
+
+const TYPE_ICON: Record<ReassignType, typeof Phone> = {
+  call: Phone,
+  callback: PhoneForwarded,
+  followup: Clock,
+  zoom: Video,
+  task: SquareKanban,
+};
+const fmt = (iso: string | null) =>
+  iso ? new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
+
+export function AvailabilityPanel() {
+  const qc = useQueryClient();
+  const [picking, setPicking] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const { data: status } = useQuery({ queryKey: ['availability'], queryFn: availabilityApi.status, retry: false });
+  const { data: inbox = [] } = useQuery({ queryKey: ['availability-inbox'], queryFn: availabilityApi.inbox, retry: false });
+
+  const online = (status?.availability ?? 'online') === 'online';
+  const refresh = () => {
+    qc.invalidateQueries({ queryKey: ['availability'] });
+    qc.invalidateQueries({ queryKey: ['availability-inbox'] });
+    // Reassignment may have moved leads/tasks off this user.
+    qc.invalidateQueries({ queryKey: ['caller-leads'] });
+    qc.invalidateQueries({ queryKey: ['followups'] });
+  };
+
+  async function goOffline(reason: string) {
+    setBusy(true);
+    try { await availabilityApi.setOffline(reason); setPicking(false); refresh(); } finally { setBusy(false); }
+  }
+  async function goOnline() {
+    setBusy(true);
+    try { await availabilityApi.setOnline(); refresh(); } finally { setBusy(false); }
+  }
+  async function dismiss(id: string) {
+    await availabilityApi.ack(id);
+    qc.invalidateQueries({ queryKey: ['availability-inbox'] });
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Availability control */}
+      <div className="flex flex-wrap items-center gap-3 rounded-2xl border bg-card p-4 shadow-sm">
+        <span className="inline-flex items-center gap-2 text-[13px] font-semibold">
+          <Circle className={`h-2.5 w-2.5 ${online ? 'fill-[#3f7a32] text-[#3f7a32]' : 'fill-[#9e2b21] text-[#9e2b21]'}`} />
+          {online ? 'Online' : `Offline${status?.reason ? ` · ${status.reason}` : ''}`}
+        </span>
+        <div className="ml-auto flex items-center gap-2">
+          {online ? (
+            picking ? (
+              <>
+                {OFFLINE_REASONS.map((r) => (
+                  <button key={r} disabled={busy} onClick={() => goOffline(r)} className="rounded-md border px-3 py-1.5 text-[12.5px] font-semibold hover:bg-muted disabled:opacity-50">{r}</button>
+                ))}
+                <button onClick={() => setPicking(false)} className="rounded-md p-1.5 hover:bg-muted"><X className="h-4 w-4" /></button>
+              </>
+            ) : (
+              <button onClick={() => setPicking(true)} className="inline-flex items-center gap-2 rounded-md border border-[#e0b4ae] px-3 py-1.5 text-[12.5px] font-semibold text-[#9e2b21] hover:bg-[#fbeeec]">
+                <Power className="h-3.5 w-3.5" /> Mark Offline
+              </button>
+            )
+          ) : (
+            <button disabled={busy} onClick={goOnline} className="inline-flex items-center gap-2 rounded-md bg-[#3f7a32] px-3 py-1.5 text-[12.5px] font-semibold text-white disabled:opacity-50">
+              <Power className="h-3.5 w-3.5" /> Go Online
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Reassigned-to-me feed */}
+      {inbox.length > 0 && (
+        <div className="rounded-2xl border bg-card shadow-sm">
+          <div className="flex items-center gap-2 border-b px-[18px] py-3.5">
+            <ArrowRightLeft className="h-4 w-4 text-[#c98a18]" />
+            <h3 className="font-display text-[15px] font-semibold">Reassigned to You</h3>
+            <span className="ml-auto text-xs text-muted-foreground">{inbox.filter((i) => !i.acknowledged).length} new</span>
+          </div>
+          <div className="max-h-[420px] divide-y overflow-y-auto">
+            {inbox.map((r) => {
+              const Icon = TYPE_ICON[r.type];
+              return (
+                <div key={r.id} className={`flex items-center gap-3 px-[18px] py-3 ${r.acknowledged ? 'opacity-60' : 'bg-[#fdfaf2]'}`}>
+                  <div className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] bg-[#fbf3e2] text-[#c98a18]"><Icon className="h-[18px] w-[18px]" /></div>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[13px] font-semibold">
+                      {REASSIGN_LABEL[r.type]} reassigned from {r.fromUserName}
+                    </div>
+                    <div className="truncate text-[12px] text-muted-foreground">
+                      {r.clientName ?? '—'} · {fmt(r.scheduledAt)} · <span className="font-medium text-[#a8431f]">{r.reason}</span>
+                    </div>
+                  </div>
+                  {!r.acknowledged && (
+                    <button onClick={() => dismiss(r.id)} title="Dismiss" className="shrink-0 rounded-md border px-2.5 py-1 text-[12px] font-semibold hover:bg-muted">Got it</button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

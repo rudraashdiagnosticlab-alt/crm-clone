@@ -6,8 +6,9 @@ import { Plus, Users, Shield, UserCheck, Phone, Check, Pencil, Filter, X, Ban, R
 import { usersApi, type User, type UserRole } from '@/lib/users';
 import { PageHead, Avatar } from '@/components/page-head';
 import { KpiCard } from '@/components/dashboard/kpi-card';
-import { FilterSelect, SearchInput } from '@/components/filter-controls';
+import { DateRangePicker, FilterSelect, SearchInput } from '@/components/filter-controls';
 import { DataTable, type ColumnDef } from '@/components/data-table';
+import { inDateBounds, type DateRange } from '@/lib/date-filters';
 
 const ROLE_META: Record<string, { label: string; cls: string; desc: string; perms: string[] }> = {
   admin: { label: 'Admin', cls: 'bg-[#f7e3da] text-[#a8431f]', desc: 'Full access to all modules, data, settings, and user management.', perms: ['All modules & settings', 'User management', 'Recordings & exports', 'System configuration'] },
@@ -31,6 +32,7 @@ export default function UsersPage() {
   const qc = useQueryClient();
   const { data: users = [] } = useQuery<User[]>({ queryKey: ['users'], queryFn: usersApi.list, retry: false });
   const [role, setRole] = useState('');
+  const [dateRange, setDateRange] = useState<DateRange>({ from: '', to: '' });
   const [q, setQ] = useState('');
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<User | null>(null);
@@ -51,6 +53,7 @@ export default function UsersPage() {
   const shown = users.filter(
     (u) =>
       (!role || u.role === role) &&
+      inDateBounds(u.createdAt, dateRange) &&
       (!term || u.name.toLowerCase().includes(term) || u.email.toLowerCase().includes(term)),
   );
 
@@ -61,6 +64,7 @@ export default function UsersPage() {
     },
     { key: 'role', header: 'Role', render: (u) => <span className={`rounded-full px-2.5 py-[3px] text-[11.5px] font-bold ${ROLE_META[u.role].cls}`}>{ROLE_META[u.role].label}</span> },
     { key: 'status', header: 'Status', render: (u) => <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-[3px] text-[11.5px] font-semibold ${u.isActive ? 'bg-[#e7eed8] text-[#42512f]' : 'bg-[#e7f0f8] text-[#2c5d8f]'}`}><span className="h-1.5 w-1.5 rounded-full" style={{ background: 'currentColor' }} />{u.isActive ? 'Active' : 'Inactive'}</span> },
+    { key: 'shift', header: 'Shift', render: (u) => u.shiftStart ? <span className="font-mono text-[12px]">{u.shiftStart}</span> : <span className="text-muted-foreground">—</span> },
     { key: 'created', header: 'Created', cellClassName: 'text-muted-foreground', render: (u) => new Date(u.createdAt).toLocaleDateString() },
     {
       key: 'actions', header: '', required: true, headerClassName: 'text-right', cellClassName: 'text-right',
@@ -110,6 +114,7 @@ export default function UsersPage() {
           <>
             <SearchInput value={q} onChange={setQ} placeholder="Search name or email…" className="min-w-[220px]" />
             <FilterSelect icon={Filter} value={role} onChange={setRole} options={ROLE_OPTS} />
+            <DateRangePicker value={dateRange} onChange={setDateRange} />
           </>
         }
       />
@@ -132,11 +137,12 @@ function UserModal({ user, onClose, onSaved }: { user: User | null; onClose: () 
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<UserRole>(user?.role ?? 'employee');
   const [isActive, setIsActive] = useState(user?.isActive ?? true);
+  const [shiftStart, setShiftStart] = useState(user?.shiftStart ?? '');
 
   const save = useMutation({
     mutationFn: () =>
       isEdit
-        ? usersApi.update(user!.id, { name, email, role, isActive, ...(password ? { password } : {}) })
+        ? usersApi.update(user!.id, { name, email, role, isActive, shiftStart, ...(password ? { password } : {}) })
         : usersApi.create({ name, email, password, role }),
     onSuccess: onSaved,
   });
@@ -173,6 +179,12 @@ function UserModal({ user, onClose, onSaved }: { user: User | null; onClose: () 
               {ROLE_SELECT.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
             </select>
           </label>
+          {isEdit && (
+            <label className="block space-y-1 text-sm">
+              <span className="font-medium">Shift start <span className="text-muted-foreground">(enables no-login auto-reassignment; blank = off)</span></span>
+              <input type="time" value={shiftStart} onChange={(e) => setShiftStart(e.target.value)} className="w-full rounded-md border bg-background px-3 py-2 text-sm" />
+            </label>
+          )}
           {isEdit && (
             <label className="flex items-center gap-2.5 text-sm">
               <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} className="h-4 w-4 accent-[#42512f]" />

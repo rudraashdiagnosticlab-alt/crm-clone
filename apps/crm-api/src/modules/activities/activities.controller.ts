@@ -1,7 +1,9 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Controller, Get, Param, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { ActivitiesService } from './activities.service';
 import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator';
+import { Role } from '@crm/database';
+import { Roles } from '../../common/decorators/roles.decorator';
 
 @ApiTags('activities')
 @ApiBearerAuth()
@@ -9,9 +11,15 @@ import { CurrentUser, AuthUser } from '../../common/decorators/current-user.deco
 export class ActivitiesController {
   constructor(private readonly activities: ActivitiesService) {}
 
-  // All roles; the service scopes employees to their own activity.
+  @Roles(Role.admin, Role.team_leader)
   @Get()
   list(@CurrentUser() user: AuthUser, @Query('limit') limit?: string) {
     return this.activities.list(user, limit ? Number(limit) : 100);
+  }
+
+  @Roles(Role.admin, Role.team_leader)
+  @Get('lead/:leadId')
+  listLead(@Param('leadId') leadId: string, @CurrentUser() user: AuthUser, @Query('limit') limit?: string) {
+    return this.activities.listLead(leadId, user, limit ? Number(limit) : 100);
   }
 }

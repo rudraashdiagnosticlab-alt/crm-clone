@@ -1,6 +1,9 @@
-import { Controller, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Put } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { Role } from '@crm/database';
 import { NotificationsService } from './notifications.service';
+import { UpdateEmailSettingsDto } from './dto/email-settings.dto';
+import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator';
 
 @ApiTags('notifications')
@@ -8,6 +11,19 @@ import { CurrentUser, AuthUser } from '../../common/decorators/current-user.deco
 @Controller('notifications')
 export class NotificationsController {
   constructor(private readonly notifications: NotificationsService) {}
+
+  // ── Admin: configurable callback email settings (req 7) ──
+  @Get('email-settings')
+  @Roles(Role.admin)
+  emailSettings() {
+    return this.notifications.getEmailSettings();
+  }
+
+  @Put('email-settings')
+  @Roles(Role.admin)
+  updateEmailSettings(@Body() dto: UpdateEmailSettingsDto) {
+    return this.notifications.updateEmailSettings({ recipients: dto.recipients, types: dto.types });
+  }
 
   @Get()
   list(@CurrentUser() user: AuthUser) {

@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { Search, Phone, Settings, LogOut } from 'lucide-react';
 import { tokenStore } from '@/lib/api';
+import { availabilityApi } from '@/lib/availability';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { NotificationBell } from '@/components/notification-bell';
 import { titleForPath, subForPath } from '@/lib/nav';
@@ -34,7 +35,9 @@ export function Topbar({ email }: { email?: string }) {
   const sub = subForPath(pathname);
   const initial = (email ?? 'U').charAt(0).toUpperCase();
 
-  function logout() {
+  async function logout() {
+    // Flip status to offline before the token is cleared (best-effort).
+    try { await availabilityApi.signOut(); } catch { /* ignore */ }
     tokenStore.clear();
     router.replace('/login');
   }

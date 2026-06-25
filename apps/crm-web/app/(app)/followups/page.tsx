@@ -3,12 +3,13 @@
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import { Calendar, Plus, Clock, RefreshCw, CheckCircle2, AlertTriangle, Phone, Filter } from 'lucide-react';
-import { callsApi, type Followup } from '@/lib/crm';
+import { Calendar, Plus, Clock, RefreshCw, CheckCircle2, AlertTriangle, Phone, Filter, Pencil, CircleCheckBig, Users } from 'lucide-react';
+import { callsApi, assignmentsApi, type Followup } from '@/lib/crm';
 import { PageHead, Avatar } from '@/components/page-head';
 import { KpiCard } from '@/components/dashboard/kpi-card';
-import { FilterSelect, SearchInput } from '@/components/filter-controls';
+import { DateRangePicker, FilterSelect, SearchInput } from '@/components/filter-controls';
 import { DataTable, type ColumnDef } from '@/components/data-table';
+import { inDateBounds, type DateRange } from '@/lib/date-filters';
 
 const TIMEFRAME_OPTS = [
   { label: 'All Follow-Ups', value: '' },
@@ -30,8 +31,20 @@ function whenLabel(iso: string): { text: string; overdue: boolean; today: boolea
 
 export default function FollowupsPage() {
   const router = useRouter();
-  const { data: allFus = [], isLoading } = useQuery({ queryKey: ['followups'], queryFn: callsApi.followups, retry: false });
+  const [userId, setUserId] = useState(''); // '' = All Users (manager filter)
+  const { data: allFus = [], isLoading } = useQuery({
+    queryKey: ['followups', userId],
+    queryFn: () => callsApi.followups(userId || undefined),
+    retry: false,
+  });
+  // Caller list powering the User Filter (admin/TL-gated endpoint).
+  const { data: summary } = useQuery({ queryKey: ['assignment-summary'], queryFn: assignmentsApi.summary, retry: false });
+  const userOpts = useMemo(
+    () => [{ label: 'All Users', value: '' }, ...(summary?.callers ?? []).map((c) => ({ label: c.name, value: c.id }))],
+    [summary],
+  );
   const [timeframe, setTimeframe] = useState('');
+  const [created, setCreated] = useState<DateRange>({ from: '', to: '' });
   const [q, setQ] = useState('');
 
   const now = new Date();
@@ -51,11 +64,25 @@ export default function FollowupsPage() {
   const fus = allFus.filter(
     (f) =>
       matchesTimeframe(f) &&
+      inDateBounds(f.nextFollowupDate, created) &&
       (!term ||
         (f.lead?.businessName ?? '').toLowerCase().includes(term) ||
         (f.lead?.phone ?? '').toLowerCase().includes(term) ||
         (f.noteText ?? '').toLowerCase().includes(term)),
   );
+
+  async function mutateFollowup(kind: Followup['kind'], id: string, action: 'complete' | 'edit') {
+    if (action === 'complete') {
+      await callsApi.completeFollowup(kind, id);
+      return;
+    }
+    const current = allFus.find((f) => f.kind === kind && f.id === id);
+    if (!current) return;
+    const next = window.prompt('New follow-up date/time (ISO or local datetime)', current.nextFollowupDate);
+    if (next === null) return;
+    const noteText = window.prompt('Follow-up note', current.noteText) ?? current.noteText;
+    await callsApi.updateFollowup(kind, id, { followUpAt: next || null, noteText });
+  }
 
   const columns = useMemo<ColumnDef<Followup>[]>(() => [
     {
@@ -65,7 +92,24 @@ export default function FollowupsPage() {
     { key: 'company', header: 'Company', render: (f) => <div className="flex items-center gap-[10px]"><Avatar name={f.lead?.businessName ?? '—'} /><span className="font-semibold">{f.lead?.businessName ?? '—'}</span></div> },
     { key: 'note', header: 'Note', cellClassName: 'max-w-[280px] truncate text-muted-foreground', render: (f) => f.noteText },
     { key: 'phone', header: 'Phone', cellClassName: 'font-mono text-[12px]', render: (f) => f.lead?.phone ?? '—' },
-    { key: 'actions', header: '', required: true, render: () => <button onClick={() => router.push('/calling')} className="grid h-[30px] w-[30px] place-items-center rounded-lg border opacity-50 transition-opacity hover:bg-primary hover:text-primary-foreground group-hover:opacity-100"><Phone className="h-[15px] w-[15px]" /></button> },
+    {
+      key: 'actions',
+      header: '',
+      required: true,
+      render: (f) => (
+        <div className="flex items-center gap-2">
+          <button onClick={() => router.push('/calling')} className="grid h-[30px] w-[30px] place-items-center rounded-lg border opacity-50 transition-opacity hover:bg-primary hover:text-primary-foreground group-hover:opacity-100" title="Open calling">
+            <Phone className="h-[15px] w-[15px]" />
+          </button>
+          <button onClick={() => void mutateFollowup(f.kind, f.id, 'edit')} className="grid h-[30px] w-[30px] place-items-center rounded-lg border opacity-60 transition-opacity hover:bg-muted hover:opacity-100" title="Edit follow-up">
+            <Pencil className="h-[15px] w-[15px]" />
+          </button>
+          <button onClick={() => void mutateFollowup(f.kind, f.id, 'complete')} className="grid h-[30px] w-[30px] place-items-center rounded-lg border opacity-60 transition-opacity hover:bg-primary hover:text-primary-foreground hover:opacity-100" title="Complete follow-up">
+            <CircleCheckBig className="h-[15px] w-[15px]" />
+          </button>
+        </div>
+      ),
+    },
   ], [router]);
 
   return (
@@ -94,7 +138,9 @@ export default function FollowupsPage() {
         toolbar={
           <>
             <SearchInput value={q} onChange={setQ} placeholder="Search company, phone, note…" className="min-w-[220px]" />
+            <FilterSelect icon={Users} value={userId} onChange={setUserId} options={userOpts} />
             <FilterSelect icon={Filter} value={timeframe} onChange={setTimeframe} options={TIMEFRAME_OPTS} />
+            <DateRangePicker value={created} onChange={setCreated} />
           </>
         }
       />

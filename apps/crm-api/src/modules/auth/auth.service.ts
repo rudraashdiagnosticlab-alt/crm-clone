@@ -1,6 +1,7 @@
 import { Injectable, UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { JwtService, JwtSignOptions } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
+import { Availability } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MfaService } from './mfa.service';
 import { LoginDto } from './dto/auth.dto';
@@ -30,6 +31,13 @@ export class AuthService {
         throw new UnauthorizedException('Invalid MFA code');
       }
     }
+
+    // Login flips the user back to Online and stamps the login time (drives the
+    // no-login auto-reassignment cron).
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { availability: Availability.online, availabilityReason: null, lastLoginAt: new Date() },
+    });
 
     return this.issueTokens(user.id, user.email, user.role);
   }

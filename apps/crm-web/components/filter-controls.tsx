@@ -1,6 +1,6 @@
 'use client';
 
-import { Search, type LucideIcon } from 'lucide-react';
+import { CalendarRange, Search, type LucideIcon } from 'lucide-react';
 
 /**
  * Controlled filter dropdown used across list pages. Pass the current `value`
@@ -60,6 +60,39 @@ export function SearchInput({
     </div>
   );
 }
+
+export type DateRangeValue = '' | 'today' | 'yesterday' | '7d' | '30d';
+
+const DATE_RANGE_OPTIONS: { label: string; value: DateRangeValue }[] = [
+  { label: 'All Time', value: '' },
+  { label: 'Today', value: 'today' },
+  { label: 'Yesterday', value: 'yesterday' },
+  { label: 'Last 7 Days', value: '7d' },
+  { label: 'Last 30 Days', value: '30d' },
+];
+
+export function DateRangeSelect({
+  value,
+  onChange,
+  options = DATE_RANGE_OPTIONS,
+}: {
+  value: DateRangeValue;
+  onChange: (v: DateRangeValue) => void;
+  options?: readonly { label: string; value: DateRangeValue }[];
+}) {
+  return (
+    <FilterSelect
+      icon={CalendarRange}
+      value={value}
+      onChange={(v) => onChange(v as DateRangeValue)}
+      options={options}
+    />
+  );
+}
+
+// Modern calendar pickers (req 8) live in date-picker.tsx; re-export here so
+// pages keep importing date controls from a single module.
+export { DateRangePicker, DatePicker } from './date-picker';
 
 /** Build `{label,value}` options from distinct values found in data. */
 export function optionsFrom(

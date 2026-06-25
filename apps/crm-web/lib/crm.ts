@@ -91,32 +91,64 @@ export interface CallerDashboard {
   productiveSecs: number;
   avgCallSecs: number;
 }
-export type CallOutcome =
-  | 'callback'
-  | 'interested'
-  | 'no_answer'
-  | 'busy'
-  | 'wrong_number'
-  | 'closed_deal'
-  | 'follow_up_required';
+// Outcomes are an admin-configurable list now; the slug is a free string.
+export type CallOutcome = string;
+
+export interface Outcome {
+  id: string;
+  slug: string;
+  name: string;
+  color: string;
+  schedulesCallback: boolean;
+  schedulesZoom: boolean;
+  leadStatus: string | null;
+  sortOrder: number;
+  isActive: boolean;
+}
+export const outcomesApi = {
+  list: async (): Promise<Outcome[]> => (await api.get('/outcomes')).data,
+  listAll: async (): Promise<Outcome[]> => (await api.get('/outcomes/all')).data,
+  create: async (body: Partial<Outcome> & { name: string }): Promise<Outcome> =>
+    (await api.post('/outcomes', body)).data,
+  update: async (id: string, body: Partial<Outcome>): Promise<Outcome> =>
+    (await api.patch(`/outcomes/${id}`, body)).data,
+  remove: async (id: string) => (await api.delete(`/outcomes/${id}`)).data,
+};
 
 export interface Followup {
+  kind: 'note' | 'lead';
   id: string;
   noteText: string;
   nextFollowupDate: string;
+  completedAt: string | null;
   caller: string | null;
-  lead: { id: string; businessName: string; phone: string; city: string; state: string; timezone: string; status: string } | null;
+  lead: { id: string; businessName: string; phone: string; city: string; state: string; timezone: string; status: string; callbackAt?: string | null; callbackCompletedAt?: string | null } | null;
+}
+
+export interface OutcomeRecord {
+  id: string;
+  outcome: CallOutcome | null;
+  createdAt: string;
+  callbackAt: string | null;
+  lead: { id: string; businessName: string; phone: string; status: string; callbackAt: string | null; callbackCompletedAt: string | null } | null;
+  caller: { id: string; name: string; email: string } | null;
 }
 
 export const callsApi = {
   dashboard: async (): Promise<CallerDashboard> => (await api.get('/calls/caller/dashboard')).data,
   myLeads: async (): Promise<Lead[]> => (await api.get('/calls/caller/leads')).data,
-  followups: async (): Promise<Followup[]> => (await api.get('/calls/followups')).data,
+  followups: async (userId?: string): Promise<Followup[]> =>
+    (await api.get('/calls/followups', { params: userId ? { userId } : {} })).data,
+  completeFollowup: async (kind: 'note' | 'lead', id: string) => (await api.post(`/calls/followups/${kind}/${id}/complete`)).data,
+  updateFollowup: async (kind: 'note' | 'lead', id: string, body: { noteText?: string; followUpAt?: string | null }) =>
+    (await api.post(`/calls/followups/${kind}/${id}`, body)).data,
+  outcomes: async (params?: { from?: string; to?: string; outcome?: string; userId?: string }): Promise<OutcomeRecord[]> =>
+    (await api.get('/calls/outcomes', { params })).data,
   start: async (leadId: string) => (await api.post('/calls/start', { leadId })).data,
-  end: async (callId: string, outcome: CallOutcome, durationSecs?: number) =>
-    (await api.post(`/calls/${callId}/end`, { outcome, durationSecs })).data,
-  addNote: async (callId: string, noteText: string, nextFollowupDate?: string) =>
-    (await api.post(`/calls/${callId}/notes`, { noteText, nextFollowupDate })).data,
+  end: async (callId: string, outcome: CallOutcome, durationSecs?: number, callbackAt?: string) =>
+    (await api.post(`/calls/${callId}/end`, { outcome, durationSecs, callbackAt })).data,
+  addNote: async (callId: string, noteText: string, nextFollowupDate?: string, callbackAt?: string) =>
+    (await api.post(`/calls/${callId}/notes`, { noteText, nextFollowupDate, callbackAt })).data,
 };
 
 // ───────────────────────── Productivity ─────────────────────────
@@ -161,6 +193,7 @@ export interface Activity {
   action: string;
   oldValue: string | null;
   newValue: string | null;
+  remarks: string | null;
   ipAddress: string | null;
   createdAt: string;
   user: { id: string; name: string; email: string } | null;
@@ -168,6 +201,8 @@ export interface Activity {
 }
 export const activitiesApi = {
   list: async (): Promise<Activity[]> => (await api.get('/activities')).data,
+  // Per-lead audit trail (admin / team-leader only — gated server-side).
+  byLead: async (leadId: string): Promise<Activity[]> => (await api.get(`/activities/lead/${leadId}`)).data,
 };
 
 // ───────────────────────── Notifications ────────────────────────
@@ -179,10 +214,18 @@ export interface Notification {
   isRead: boolean;
   createdAt: string;
 }
+export type CallbackEmailType = 'callback_reminder' | 'callback_due' | 'callback_missed';
+export interface EmailSettings {
+  recipients: string[];
+  types: Record<CallbackEmailType, boolean>;
+}
 export const notificationsApi = {
   list: async (): Promise<Notification[]> => (await api.get('/notifications')).data,
   unreadCount: async (): Promise<{ count: number }> => (await api.get('/notifications/unread-count')).data,
   markAllRead: async () => (await api.post('/notifications/read-all')).data,
+  getEmailSettings: async (): Promise<EmailSettings> => (await api.get('/notifications/email-settings')).data,
+  updateEmailSettings: async (s: EmailSettings): Promise<EmailSettings> =>
+    (await api.put('/notifications/email-settings', s)).data,
 };
 
 // ─────────────────────────── Tasks ─────────────────────────────
@@ -255,12 +298,24 @@ export interface TimelineItem {
   body?: string;
   by?: string | null;
 }
+export interface StartCallResult {
+  callId: string;
+  phone: string;
+  /** True when the call was routed through the Quo queue. */
+  queued?: boolean;
+  queueId?: string;
+  quoCallId?: string | null;
+  status?: string;
+  error?: string | null;
+  /** Present only when no queue is configured (fallback to the agent's dialer). */
+  tel?: string;
+}
 export const communicationsApi = {
   timeline: async (leadId: string): Promise<TimelineItem[]> =>
     (await api.get(`/communications/lead/${leadId}`)).data,
   sendSms: async (leadId: string, body: string): Promise<{ success: boolean; error: string | null }> =>
     (await api.post(`/communications/lead/${leadId}/sms`, { body })).data,
-  startCall: async (leadId: string): Promise<{ callId: string; tel: string; phone: string }> =>
+  startCall: async (leadId: string): Promise<StartCallResult> =>
     (await api.post(`/communications/lead/${leadId}/call`, {})).data,
   latestIncoming: async (): Promise<IncomingCall | null> =>
     (await api.get('/communications/incoming/latest')).data,
@@ -272,6 +327,8 @@ export interface IncomingCall {
   callId: string;
   at: string;
   status: string | null;
+  /** True once Quo reports the call as live/answered — drives popup auto-open. */
+  connected: boolean;
   lead: { id: string; businessName: string; phone: string; city: string; state: string; status: string };
 }
 export interface CommAnalytics {
@@ -283,14 +340,14 @@ export interface CommAnalytics {
 
 export interface IntegrationStatus {
   openphone: { provider: string; configured: boolean; sandbox: boolean; baseUrl: string; apiKeyHint: string | null };
-  quo: { provider: string; configured: boolean; sandbox: boolean; baseUrl: string; apiKeyHint: string | null };
+  quo: { provider: string; configured: boolean; sandbox: boolean; baseUrl: string; apiKeyHint: string | null; queueId: string | null; queueConfigured: boolean };
 }
 export const integrationsApi = {
   status: async (): Promise<IntegrationStatus> => (await api.get('/integrations/status')).data,
   connectOpenPhone: async (apiKey: string, baseUrl?: string, webhookSecret?: string) =>
     (await api.put('/integrations/openphone', { apiKey, baseUrl, webhookSecret })).data,
-  connectQuo: async (baseUrl: string, apiKey: string) =>
-    (await api.put('/integrations/quo', { baseUrl, apiKey })).data,
+  connectQuo: async (baseUrl: string, apiKey: string, queueId?: string) =>
+    (await api.put('/integrations/quo', { baseUrl, apiKey, queueId })).data,
   disconnect: async (provider: 'openphone' | 'quo') =>
     (await api.delete(`/integrations/${provider}`)).data,
 };

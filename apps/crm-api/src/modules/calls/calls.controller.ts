@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CallsService } from './calls.service';
-import { StartCallDto, EndCallDto, CreateNoteDto } from './dto/call.dto';
+import { StartCallDto, EndCallDto, CreateNoteDto, UpdateFollowupDto } from './dto/call.dto';
 import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator';
 
 @ApiTags('calls')
@@ -28,10 +28,37 @@ export class CallsController {
     return this.calls.nextLead(user.id);
   }
 
-  // CAL-013 — upcoming follow-ups across leads
+  // CAL-013 — upcoming follow-ups. Employees are scoped to their own; managers
+  // see all and may filter by a specific caller (?userId=).
   @Get('followups')
-  followups() {
-    return this.calls.followups();
+  followups(@CurrentUser() user: AuthUser, @Query('userId') userId?: string) {
+    return this.calls.followups({ id: user.id, role: user.role }, userId);
+  }
+
+  @Post('followups/:kind/:id/complete')
+  completeFollowup(@Param('kind') kind: 'note' | 'lead', @Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.calls.completeFollowup(kind, id, user.id);
+  }
+
+  @Post('followups/:kind/:id')
+  updateFollowup(
+    @Param('kind') kind: 'note' | 'lead',
+    @Param('id') id: string,
+    @Body() dto: UpdateFollowupDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.calls.updateFollowup(kind, id, dto, user.id);
+  }
+
+  @Get('outcomes')
+  outcomes(
+    @CurrentUser() user: AuthUser,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('outcome') outcome?: string,
+    @Query('userId') userId?: string,
+  ) {
+    return this.calls.outcomes({ from, to, outcome, userId }, { id: user.id, role: user.role });
   }
 
   // CAL-015 — call + note history for a lead

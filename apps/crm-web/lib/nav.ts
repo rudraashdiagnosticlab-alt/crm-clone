@@ -20,6 +20,7 @@ import {
   SlidersHorizontal,
   Settings,
   MessageSquare,
+  Video,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -59,15 +60,17 @@ export const NAV: NavGroup[] = [
       { label: 'Lead Management', href: '/leads', icon: Target, sub: 'Master lead database' },
       { label: 'Contacts', href: '/contacts', icon: Contact, sub: 'People & companies' },
       { label: 'Sales Pipeline', href: '/pipeline', icon: GitBranch, sub: 'Deals by stage' },
-      { label: 'Follow-Ups', href: '/followups', icon: Clock, sub: 'Callbacks & reminders', badge: '5' },
+      { label: 'Follow-Ups', href: '/followups', icon: Clock, sub: 'Callbacks & reminders', badge: '5', roles: MANAGERS },
     ],
   },
   {
     heading: 'Calling',
     items: [
       { label: 'Calling Panel', href: '/calling', icon: PhoneCall, sub: 'Dialer workspace' },
+      { label: 'Zoom Meetings', href: '/zoom', icon: Video, sub: 'Schedule & meeting history' },
       { label: 'Call Queue', href: '/queue', icon: ListOrdered, sub: "Today's assignments" },
       { label: 'Assigned Calls', href: '/assigned', icon: PhoneForwarded, sub: 'Team assignments', roles: MANAGERS },
+      { label: 'Outcome', href: '/outcomes', icon: NotebookPen, sub: 'Outcome status records' },
       { label: 'Activity Tracker', href: '/activity', icon: NotebookPen, sub: 'Call activity log' },
       { label: 'Communications', href: '/communications', icon: MessageSquare, sub: 'Calls & SMS analytics', roles: MANAGERS },
     ],
@@ -123,6 +126,8 @@ const EXTRA_ROUTE_ROLES: { prefix: string; roles: Role[] }[] = [
   { prefix: '/security', roles: MANAGERS },
   { prefix: '/call-summary', roles: MANAGERS },
   { prefix: '/import', roles: MANAGERS },
+  // /outcomes is open to all roles — the API scopes employees to their own
+  // outcomes, while admins/team-leaders see everyone plus the User filter.
 ];
 
 // All access rules (nav-derived + extras), longest-prefix wins.

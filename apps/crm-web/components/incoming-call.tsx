@@ -9,18 +9,18 @@ import { tokenStore } from '@/lib/api';
 
 /**
  * Global incoming-call popup. Polls for the latest inbound call (last 60s) and
- * pops a card when a new one arrives. Dismissed ids are remembered so it won't
- * re-pop the same call.
+ * auto-opens the lead record once Quo reports the call as connected.
  */
 export function IncomingCallPopup() {
   const router = useRouter();
   const [active, setActive] = useState<IncomingCall | null>(null);
   const dismissed = useRef<Set<string>>(new Set());
+  const autoOpened = useRef<Set<string>>(new Set());
 
   const { data } = useQuery({
     queryKey: ['incoming-latest'],
     queryFn: communicationsApi.latestIncoming,
-    refetchInterval: 5000,
+    refetchInterval: 3000,
     enabled: typeof window !== 'undefined' && !!tokenStore.access,
     retry: false,
   });
@@ -29,6 +29,15 @@ export function IncomingCallPopup() {
     if (data && !dismissed.current.has(data.callId)) setActive(data);
   }, [data]);
 
+  // Auto-open the lead record when the inbound call connects.
+  useEffect(() => {
+    if (!active?.connected || autoOpened.current.has(active.callId)) return;
+    autoOpened.current.add(active.callId);
+    router.push(`/leads/${active.lead.id}`);
+    dismissed.current.add(active.callId);
+    setActive(null);
+  }, [active, router]);
+
   if (!active) return null;
   const close = () => { dismissed.current.add(active.callId); setActive(null); };
 
@@ -36,7 +45,7 @@ export function IncomingCallPopup() {
     <div className="fixed bottom-5 right-5 z-50 w-[320px] overflow-hidden rounded-2xl border bg-card shadow-2xl">
       <div className="flex items-center gap-2.5 bg-[#42512f] px-4 py-3 text-white">
         <PhoneIncoming className="h-4 w-4 animate-pulse" />
-        <span className="text-[13px] font-semibold">Incoming call</span>
+        <span className="text-[13px] font-semibold">{active.connected ? 'Call connected' : 'Incoming call'}</span>
         <button onClick={close} className="ml-auto grid h-7 w-7 place-items-center rounded-lg hover:bg-white/10"><X className="h-4 w-4" /></button>
       </div>
       <div className="p-4">

@@ -26,6 +26,11 @@ export class UpdateUserDto extends PartialType(CreateUserDto) {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @ApiPropertyOptional({ example: '09:00', description: 'Shift start (HH:mm); enables no-login auto-reassignment' })
+  @IsOptional()
+  @IsString()
+  shiftStart?: string;
 }
 
 export class ListUsersQueryDto {

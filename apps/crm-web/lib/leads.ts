@@ -21,6 +21,12 @@ export interface Lead {
   comments: string | null;
   leadCategory: string | null;
   nextFollowUpDate: string | null;
+  callbackAt: string | null;
+  callbackCompletedAt: string | null;
+  // ── Derived call state (caller queue ordering) ──
+  lastCallAt?: string | null;
+  lastCallEndedAt?: string | null;
+  lastOutcome?: string | null;
   assignedTo: { id: string; name: string; email: string } | null;
   quoStatus: QuoStatus;
   quoExternalId: string | null;
@@ -28,6 +34,17 @@ export interface Lead {
   quoError: string | null;
   quoSyncedAt: string | null;
   createdAt: string;
+}
+
+export interface LeadActivity {
+  id: string;
+  action: string;
+  oldValue: string | null;
+  newValue: string | null;
+  remarks?: string | null;
+  createdAt: string;
+  user: { id: string; name: string; email: string } | null;
+  lead: { id: string; businessName: string } | null;
 }
 
 export interface QuoSyncLog {
@@ -63,6 +80,7 @@ export interface CreateLeadInput {
 export const leadsApi = {
   list: async (): Promise<Lead[]> => (await api.get('/leads')).data,
   get: async (id: string): Promise<Lead> => (await api.get(`/leads/${id}`)).data,
+  activities: async (id: string): Promise<LeadActivity[]> => (await api.get(`/activities/lead/${id}`)).data,
   create: async (input: CreateLeadInput): Promise<Lead> => (await api.post('/leads', input)).data,
   syncToQuo: async (id: string) => (await api.post(`/leads/${id}/quo-sync`)).data,
   quoLogs: async (id: string): Promise<QuoSyncLog[]> => (await api.get(`/leads/${id}/quo-logs`)).data,

@@ -4,6 +4,10 @@ import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { activitiesApi, type Activity } from '@/lib/crm';
 import { DataTable, type ColumnDef } from '@/components/data-table';
+import { useState } from 'react';
+import { DateRangePicker, FilterSelect } from '@/components/filter-controls';
+import { Filter } from 'lucide-react';
+import { inDateBounds, type DateRange } from '@/lib/date-filters';
 
 export default function SecurityPage() {
   const { data: activities = [], isLoading, isError } = useQuery({
@@ -11,6 +15,10 @@ export default function SecurityPage() {
     queryFn: activitiesApi.list,
     retry: false,
   });
+  const [dateRange, setDateRange] = useState<DateRange>({ from: '', to: '' });
+  const [action, setAction] = useState('');
+  const actions = Array.from(new Set(activities.map((a) => a.action))).sort();
+  const filtered = activities.filter((a) => (!action || a.action === action) && inDateBounds(a.createdAt, dateRange));
 
   const columns = useMemo<ColumnDef<Activity>[]>(() => [
     { key: 'when', header: 'When', required: true, cellClassName: 'text-muted-foreground', render: (a) => new Date(a.createdAt).toLocaleString() },
@@ -25,14 +33,18 @@ export default function SecurityPage() {
       <p className="text-sm text-muted-foreground">
         Audit / activity log — every status change and call is recorded (SEC-004)
       </p>
+      <div className="flex flex-wrap items-center gap-2.5">
+        <FilterSelect icon={Filter} value={action} onChange={setAction} options={[{ label: 'All Actions', value: '' }, ...actions.map((a) => ({ label: a.replace('_', ' '), value: a }))]} />
+        <DateRangePicker value={dateRange} onChange={setDateRange} />
+      </div>
 
       <DataTable
         tableKey="security-audit"
         columns={columns}
-        rows={isError ? [] : activities}
+        rows={isError ? [] : filtered}
         getRowKey={(a) => a.id}
         title="Audit Log"
-        subtitle={`${activities.length} entries`}
+        subtitle={`${filtered.length} entries`}
         loading={isLoading}
         emptyText={isError ? 'Could not load activity log (admin or team-leader role required).' : 'No activity recorded yet — complete a call to generate audit entries.'}
       />

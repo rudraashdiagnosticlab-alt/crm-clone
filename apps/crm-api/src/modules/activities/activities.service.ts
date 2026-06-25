@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable } from '@nestjs/common';
 import { Role } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service';
 
@@ -13,6 +13,21 @@ export class ActivitiesService {
     const where = user.role === Role.employee ? { userId: user.id } : {};
     return this.prisma.activity.findMany({
       where,
+      orderBy: { createdAt: 'desc' },
+      take: Math.min(limit, 200),
+      include: {
+        user: { select: { id: true, name: true, email: true } },
+        lead: { select: { id: true, businessName: true } },
+      },
+    });
+  }
+
+  listLead(leadId: string, user: { id: string; role: Role }, limit = 100) {
+    if (user.role === Role.employee) {
+      throw new ForbiddenException('Insufficient role for this action');
+    }
+    return this.prisma.activity.findMany({
+      where: { leadId },
       orderBy: { createdAt: 'desc' },
       take: Math.min(limit, 200),
       include: {

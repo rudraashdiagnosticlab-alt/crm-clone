@@ -4,6 +4,6 @@ import { QuoService } from './quo.service';
 
 @Module({
   providers: [QuoClient, QuoService],
-  exports: [QuoService],
+  exports: [QuoService, QuoClient],
 })
 export class QuoModule {}

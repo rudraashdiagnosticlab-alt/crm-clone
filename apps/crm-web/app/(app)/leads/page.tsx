@@ -3,17 +3,19 @@
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Upload, Download, Plus, Phone, Eye, Clock, MapPin, Building2, Filter, Target, Zap, Layers, Percent } from 'lucide-react';
+import { Upload, Download, Plus, Phone, Eye, Clock, MapPin, Building2, Filter, Target, Zap, Layers, Percent, Info } from 'lucide-react';
 import { leadsApi, type CreateLeadInput, type Lead } from '@/lib/leads';
+import { LeadActivityDrawer } from '@/components/lead-activity-log';
 import { metricsApi } from '@/lib/crm';
 import { api } from '@/lib/api';
 import { QuoStatusBadge } from '@/components/quo-status-badge';
 import { StatusPill } from '@/components/status-pill';
 import { PageHead, Avatar } from '@/components/page-head';
 import { KpiCard } from '@/components/dashboard/kpi-card';
-import { FilterSelect, SearchInput, optionsFrom } from '@/components/filter-controls';
+import { DateRangePicker, FilterSelect, SearchInput, optionsFrom } from '@/components/filter-controls';
 import { DataTable, type ColumnDef } from '@/components/data-table';
 import { downloadCsv, downloadXlsx } from '@/lib/export';
+import { inDateBounds, type DateRange } from '@/lib/date-filters';
 
 const EMPTY: CreateLeadInput = { businessName: '', phone: '', email: '', state: '', city: '', timezone: 'EST' };
 
@@ -34,14 +36,16 @@ export default function LeadsPage() {
   const [state, setState] = useState('');
   const [city, setCity] = useState('');
   const [status, setStatus] = useState('');
+  const [created, setCreated] = useState<DateRange>({ from: '', to: '' });
   const [q, setQ] = useState('');
 
   const { data: allLeads = [], isLoading } = useQuery({ queryKey: ['leads'], queryFn: leadsApi.list });
   const { data: me } = useQuery({ queryKey: ['me'], queryFn: async () => (await api.get('/auth/me')).data, retry: false });
   const canManage = me?.role === 'admin' || me?.role === 'team_leader';
+  const [activityLead, setActivityLead] = useState<Lead | null>(null); // Activity Log drawer (managers only)
 
   const EXPORT_HEADERS = ['PHONE', 'COMPANY NAME', 'NAME', 'TIME ZONE', 'EMAIL', 'INDUSTRY', 'TITLE', 'STATE', 'CITY', 'VLC', 'Employee Code', 'CALLER', 'STATUS', 'COMMENTS', 'NEXT FOLLOW UP DATE', 'LEAD CATEGORY'];
-  const exportRows = () => leads.map((l) => [l.phone, l.businessName, l.contactName ?? '', l.timezone, l.email ?? '', l.industry ?? '', l.title ?? '', l.state, l.city, l.vlc ?? '', l.employeeCode ?? '', l.assignedTo?.name ?? '', l.status, l.comments ?? '', l.nextFollowUpDate ? new Date(l.nextFollowUpDate).toLocaleDateString() : '', l.leadCategory ?? '']);
+  const exportRows = () => leads.map((l) => [l.phone, l.leadId, l.contactName ?? '', l.timezone, l.email ?? '', l.industry ?? '', l.title ?? '', l.state, l.city, l.vlc ?? '', l.employeeCode ?? '', l.assignedTo?.name ?? '', l.status, l.comments ?? '', l.nextFollowUpDate ? new Date(l.nextFollowUpDate).toLocaleDateString() : '', l.leadCategory ?? '']);
 
   // States cascade from the selected timezone; cities from timezone + state.
   const stateOpts = optionsFrom(
@@ -60,9 +64,10 @@ export default function LeadsPage() {
       (!state || l.state === state) &&
       (!city || l.city === city) &&
       (!status || l.status === status) &&
+      inDateBounds(l.createdAt, created) &&
       (!term ||
-        l.businessName.toLowerCase().includes(term) ||
         l.leadId.toLowerCase().includes(term) ||
+        (l.contactName ?? '').toLowerCase().includes(term) ||
         l.phone.toLowerCase().includes(term) ||
         (l.email ?? '').toLowerCase().includes(term)),
   );
@@ -86,11 +91,11 @@ export default function LeadsPage() {
     {
       key: 'lead', header: 'Lead', required: true,
       render: (l) => (
-        <div className="flex items-center gap-[10px]">
-          <Avatar name={l.businessName} />
+          <div className="flex items-center gap-[10px]">
+          <Avatar name={l.leadId} />
           <div>
-            <div className="font-semibold text-foreground">{l.businessName}</div>
             <div className="font-mono text-[11.5px] text-muted-foreground">{l.leadId}</div>
+            <div className="text-[12px] text-muted-foreground">{l.contactName ?? 'Lead record'}</div>
           </div>
         </div>
       ),
@@ -113,13 +118,26 @@ export default function LeadsPage() {
     {
       key: 'actions', header: '', required: true,
       render: (l) => (
-        <div className="flex gap-1.5 opacity-50 transition-opacity group-hover:opacity-100">
-          <button onClick={() => router.push('/calling')} title="Call" className="grid h-[30px] w-[30px] place-items-center rounded-lg border text-[#333f25] hover:bg-primary hover:text-primary-foreground dark:text-foreground"><Phone className="h-[15px] w-[15px]" /></button>
-          <button onClick={() => router.push(`/leads/${l.id}`)} title="View" className="grid h-[30px] w-[30px] place-items-center rounded-lg border text-[#333f25] hover:bg-primary hover:text-primary-foreground dark:text-foreground"><Eye className="h-[15px] w-[15px]" /></button>
+        <div className="flex items-center gap-1.5">
+          {/* Info → Activity Log: always visible for managers (Admin / TL) */}
+          {canManage && (
+            <button
+              onClick={() => setActivityLead(l)}
+              title="Activity log"
+              aria-label="Activity log"
+              className="grid h-[30px] w-[30px] place-items-center rounded-lg border border-[#bcd9ff] bg-[#f2f8ff] text-[#1f5fae] hover:bg-[#2D8CFF] hover:text-white"
+            >
+              <Info className="h-[15px] w-[15px]" />
+            </button>
+          )}
+          <div className="flex gap-1.5 opacity-50 transition-opacity group-hover:opacity-100">
+            <button onClick={() => router.push('/calling')} title="Call" className="grid h-[30px] w-[30px] place-items-center rounded-lg border text-[#333f25] hover:bg-primary hover:text-primary-foreground dark:text-foreground"><Phone className="h-[15px] w-[15px]" /></button>
+            <button onClick={() => router.push(`/leads/${l.id}`)} title="View" className="grid h-[30px] w-[30px] place-items-center rounded-lg border text-[#333f25] hover:bg-primary hover:text-primary-foreground dark:text-foreground"><Eye className="h-[15px] w-[15px]" /></button>
+          </div>
         </div>
       ),
     },
-  ], [router]);
+  ], [router, canManage]);
 
   return (
     <div>
@@ -165,6 +183,7 @@ export default function LeadsPage() {
         <FilterSelect icon={MapPin} value={state} onChange={(v) => { setState(v); setCity(''); }} options={stateOpts} />
         <FilterSelect icon={Building2} value={city} onChange={setCity} options={cityOpts} />
         <FilterSelect icon={Filter} value={status} onChange={setStatus} options={STATUS_OPTS} />
+        <DateRangePicker value={created} onChange={setCreated} />
       </div>
 
       {/* Create form */}
@@ -218,6 +237,11 @@ export default function LeadsPage() {
         loading={isLoading}
         emptyText={allLeads.length === 0 ? 'No leads yet — add one above.' : 'No leads match the current filters.'}
       />
+
+      {/* Activity Log drawer (Admin / Manager / Team Lead) */}
+      {activityLead && canManage && (
+        <LeadActivityDrawer leadId={activityLead.id} leadName={activityLead.businessName} onClose={() => setActivityLead(null)} />
+      )}
     </div>
   );
 }

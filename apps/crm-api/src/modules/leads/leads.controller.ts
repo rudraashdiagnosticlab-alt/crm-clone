@@ -19,16 +19,16 @@ export class LeadsController {
   // Upload/create leads — Admin + Team Leader (Permission Matrix)
   @Roles(Role.admin, Role.team_leader)
   @Post()
-  create(@Body() dto: CreateLeadDto) {
-    return this.leads.create(dto);
+  create(@Body() dto: CreateLeadDto, @CurrentUser() user: AuthUser) {
+    return this.leads.create(dto, user.id);
   }
 
   // IMP-001 — bulk import parsed rows
   @Roles(Role.admin, Role.team_leader)
   @Post('import')
   @HttpCode(200)
-  bulkImport(@Body() dto: ImportLeadsDto) {
-    return this.leads.bulkImport(dto);
+  bulkImport(@Body() dto: ImportLeadsDto, @CurrentUser() user: AuthUser) {
+    return this.leads.bulkImport(dto, user.id);
   }
 
   // Employees see only their assigned leads; admins/leaders see all.

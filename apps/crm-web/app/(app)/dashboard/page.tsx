@@ -7,6 +7,7 @@ import { RefreshCw, Download, PhoneCall, Target, Zap, Layers, Percent, Phone, Ch
 import Link from 'next/link';
 import { leadsApi, type Lead } from '@/lib/leads';
 import { metricsApi, tasksApi, callsApi, type Task, type Followup } from '@/lib/crm';
+import { AvailabilityPanel } from '@/components/availability-panel';
 import { WidgetCard, type Column } from '@/components/dashboard/widget-card';
 import { KpiCard } from '@/components/dashboard/kpi-card';
 import { AnimatedNumber } from '@/components/animated-number';
@@ -60,7 +61,7 @@ export default function DashboardPage() {
 
   const { data: leads = [] } = useQuery({ queryKey: ['leads', 'today'], queryFn: leadsApi.list, retry: false, refetchInterval: LIVE_MS });
   const { data: tasks = [] } = useQuery({ queryKey: ['tasks'], queryFn: tasksApi.list, retry: false });
-  const { data: followups = [] } = useQuery({ queryKey: ['followups'], queryFn: callsApi.followups, retry: false });
+  const { data: followups = [] } = useQuery({ queryKey: ['followups'], queryFn: () => callsApi.followups(), retry: false });
   const summaryQ = useQuery({ queryKey: ['metrics', 'summary', period], queryFn: () => metricsApi.summary(range), retry: false, refetchInterval: LIVE_MS, refetchOnWindowFocus: true });
   const s = summaryQ.data;
 
@@ -79,6 +80,9 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-5">
+      {/* Availability toggle + reassigned-work feed */}
+      <AvailabilityPanel />
+
       {/* Page head */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>

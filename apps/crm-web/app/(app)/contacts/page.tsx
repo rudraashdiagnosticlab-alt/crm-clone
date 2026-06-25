@@ -7,7 +7,8 @@ import { RefreshCw, Plus, Phone, Mail, MapPin, Eye, Filter, Clock, Building2 } f
 import { leadsApi } from '@/lib/leads';
 import { PageHead, Avatar } from '@/components/page-head';
 import { StatusPill } from '@/components/status-pill';
-import { FilterSelect, SearchInput, optionsFrom } from '@/components/filter-controls';
+import { DateRangePicker, FilterSelect, SearchInput, optionsFrom } from '@/components/filter-controls';
+import { inDateBounds, type DateRange } from '@/lib/date-filters';
 
 const STATUS_OPTS = [
   { label: 'All Statuses', value: '' },
@@ -24,6 +25,7 @@ export default function ContactsPage() {
   const [tz, setTz] = useState('');
   const [state, setState] = useState('');
   const [city, setCity] = useState('');
+  const [created, setCreated] = useState<DateRange>({ from: '', to: '' });
   const [q, setQ] = useState('');
 
   // Timezone → State → City: each level's options narrow to the picks above it.
@@ -44,6 +46,7 @@ export default function ContactsPage() {
       (!tz || l.timezone === tz) &&
       (!state || l.state === state) &&
       (!city || l.city === city) &&
+      inDateBounds(l.createdAt, created) &&
       (!term ||
         l.businessName.toLowerCase().includes(term) ||
         l.phone.toLowerCase().includes(term) ||
@@ -65,6 +68,7 @@ export default function ContactsPage() {
         <FilterSelect icon={MapPin} value={state} onChange={(v) => { setState(v); setCity(''); }} options={stateOpts} />
         <FilterSelect icon={Building2} value={city} onChange={setCity} options={cityOpts} />
         <FilterSelect icon={Filter} value={status} onChange={setStatus} options={STATUS_OPTS} />
+        <DateRangePicker value={created} onChange={setCreated} />
       </div>
 
       <div className="grid gap-[18px] md:grid-cols-2 xl:grid-cols-3">

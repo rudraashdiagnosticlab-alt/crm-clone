@@ -18,7 +18,7 @@ export class CalendarService {
     const end = new Date(Date.UTC(year, month, 1));
     const dayOf = (d: Date) => d.getUTCDate();
 
-    const [calls, notes, tasks] = await Promise.all([
+    const [calls, notes, tasks, callbacks] = await Promise.all([
       this.prisma.call.findMany({
         where: { startTime: { gte: start, lt: end } },
         select: { startTime: true },
@@ -30,6 +30,10 @@ export class CalendarService {
       this.prisma.task.findMany({
         where: { ownerId: userId, dueDate: { gte: start, lt: end } },
         select: { dueDate: true, title: true },
+      }),
+      this.prisma.lead.findMany({
+        where: { assignedToId: userId, callbackAt: { gte: start, lt: end }, callbackCompletedAt: null, deletedAt: null },
+        select: { callbackAt: true, businessName: true },
       }),
     ]);
 
@@ -55,6 +59,16 @@ export class CalendarService {
     for (const t of tasks) {
       if (!t.dueDate) continue;
       events.push({ day: dayOf(t.dueDate), date: t.dueDate.toISOString(), type: 'task', label: t.title });
+    }
+
+    for (const c of callbacks as Array<{ callbackAt: Date | null; businessName: string }>) {
+      if (!c.callbackAt) continue;
+      events.push({
+        day: dayOf(c.callbackAt),
+        date: c.callbackAt.toISOString(),
+        type: 'fu',
+        label: `Callback: ${c.businessName}`,
+      });
     }
 
     return events.sort((a, b) => a.day - b.day);

@@ -2,11 +2,12 @@
 
 import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Phone, Mic, Users, CheckCircle2, KeyRound, RefreshCw, Play, Download, X } from 'lucide-react';
+import { Phone, Mic, Users, CheckCircle2, KeyRound, RefreshCw, Play, Download, X, Filter } from 'lucide-react';
 import { configApi, openphoneApi, integrationsApi } from '@/lib/crm';
 import { PageHead, Avatar } from '@/components/page-head';
 import { KpiCard } from '@/components/dashboard/kpi-card';
 import { DataTable, type ColumnDef } from '@/components/data-table';
+import { FilterSelect } from '@/components/filter-controls';
 
 type ConnectProvider = 'openphone' | 'quo';
 
@@ -39,6 +40,7 @@ type Tab = (typeof TABS)[number];
 export default function IntegrationsPage() {
   const qc = useQueryClient();
   const [tab, setTab] = useState<Tab>('Connections');
+  const [syncStatus, setSyncStatus] = useState('');
   const [connect, setConnect] = useState<ConnectProvider | null>(null);
   const { data: cfg } = useQuery({ queryKey: ['config-status'], queryFn: configApi.status, retry: false });
   const { data: intg } = useQuery({ queryKey: ['integrations-status'], queryFn: integrationsApi.status, retry: false });
@@ -89,6 +91,7 @@ export default function IntegrationsPage() {
     { key: 'duration', header: 'Duration', cellClassName: 'font-mono', render: (r) => r[4] },
     { key: 'status', header: 'Status', render: (r) => r[5] ? <span className="inline-flex items-center gap-1.5 rounded-full bg-[#e7eed8] px-2.5 py-[3px] text-[11.5px] font-semibold text-[#42512f]"><span className="h-1.5 w-1.5 rounded-full bg-[#42512f]" /> Synced</span> : <span className="inline-flex items-center gap-1.5 rounded-full bg-[#e7f0f8] px-2.5 py-[3px] text-[11.5px] font-semibold text-[#2c5d8f]"><span className="h-1.5 w-1.5 rounded-full bg-[#2c5d8f]" /> Syncing…</span> },
   ], []);
+  const syncRows = (SYNC as unknown as SyncRow[]).filter((r) => !syncStatus || (syncStatus === 'synced' ? !!r[5] : !r[5]));
 
   return (
     <div>
@@ -150,6 +153,7 @@ export default function IntegrationsPage() {
           provider={connect}
           hint={connect === 'openphone' ? intg?.openphone.apiKeyHint ?? null : intg?.quo.apiKeyHint ?? null}
           baseUrl={connect === 'openphone' ? intg?.openphone.baseUrl ?? '' : intg?.quo.baseUrl ?? ''}
+          quoQueueId={intg?.quo.queueId ?? ''}
           onClose={() => setConnect(null)}
           onSaved={() => { refresh(); setConnect(null); }}
         />
@@ -159,12 +163,26 @@ export default function IntegrationsPage() {
         <DataTable
           tableKey="integrations-callsync"
           columns={syncColumns}
-          rows={SYNC as unknown as SyncRow[]}
+          rows={syncRows}
           getRowKey={(r) => r[0]}
           title="Call Sync Dashboard"
           subtitle="Live sync from connected dialers"
           emptyText="No synced calls."
-          toolbar={<span className="inline-flex items-center gap-1.5 rounded-full bg-[#e7eed8] px-2.5 py-[3px] text-[11.5px] font-semibold text-[#42512f]"><span className="h-1.5 w-1.5 rounded-full bg-[#42512f]" /> Auto-sync on</span>}
+          toolbar={
+            <>
+              <FilterSelect
+                icon={Filter}
+                value={syncStatus}
+                onChange={setSyncStatus}
+                options={[
+                  { label: 'All Statuses', value: '' },
+                  { label: 'Synced', value: 'synced' },
+                  { label: 'Syncing', value: 'syncing' },
+                ]}
+              />
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-[#e7eed8] px-2.5 py-[3px] text-[11.5px] font-semibold text-[#42512f]"><span className="h-1.5 w-1.5 rounded-full bg-[#42512f]" /> Auto-sync on</span>
+            </>
+          }
         />
       )}
 
@@ -211,12 +229,14 @@ function ConnectModal({
   provider,
   hint,
   baseUrl,
+  quoQueueId,
   onClose,
   onSaved,
 }: {
   provider: ConnectProvider;
   hint: string | null;
   baseUrl: string;
+  quoQueueId?: string;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -224,10 +244,11 @@ function ConnectModal({
   const [apiKey, setApiKey] = useState('');
   const [url, setUrl] = useState(baseUrl || (isOP ? 'https://api.openphone.com/v1' : ''));
   const [webhookSecret, setWebhookSecret] = useState('');
+  const [queueId, setQueueId] = useState(quoQueueId ?? '');
 
   const save = useMutation({
     mutationFn: () =>
-      isOP ? integrationsApi.connectOpenPhone(apiKey, url, webhookSecret || undefined) : integrationsApi.connectQuo(url, apiKey),
+      isOP ? integrationsApi.connectOpenPhone(apiKey, url, webhookSecret || undefined) : integrationsApi.connectQuo(url, apiKey, queueId || undefined),
     onSuccess: (res: { connected?: boolean; error?: string | null }) => {
       // OpenPhone returns a live probe result; only close if it actually connected.
       if (isOP && res && res.connected === false) return;
@@ -257,6 +278,12 @@ function ConnectModal({
             <span className="font-medium">API Key</span>
             <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} required placeholder={hint ? `Saved (${hint}) — enter to replace` : 'Paste API key'} className="w-full rounded-md border bg-background px-3 py-2 text-sm" />
           </label>
+          {!isOP && (
+            <label className="block space-y-1 text-sm">
+              <span className="font-medium">Call Queue ID <span className="text-muted-foreground">(outbound calls route through this queue)</span></span>
+              <input value={queueId} onChange={(e) => setQueueId(e.target.value)} placeholder="e.g. queue_abc123" className="w-full rounded-md border bg-background px-3 py-2 text-sm" />
+            </label>
+          )}
           {isOP && (
             <>
               <label className="block space-y-1 text-sm">

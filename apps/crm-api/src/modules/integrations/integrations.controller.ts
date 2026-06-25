@@ -32,7 +32,7 @@ export class IntegrationsController {
 
   @Put('quo')
   async connectQuo(@Body() dto: ConnectQuoDto) {
-    await this.config.set('quo', { QUO_BASE_URL: dto.baseUrl, QUO_API_KEY: dto.apiKey });
+    await this.config.set('quo', { QUO_BASE_URL: dto.baseUrl, QUO_API_KEY: dto.apiKey, QUO_QUEUE_ID: dto.queueId });
     return this.config.status().quo;
   }
 

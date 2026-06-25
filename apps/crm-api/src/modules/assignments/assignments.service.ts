@@ -31,6 +31,14 @@ export class AssignmentsService {
 
   /** Assign a batch of leads to one caller, recording assignment history. */
   async assignMany(leadIds: string[], callerId: string, assignedById: string, batchName?: string) {
+    // Snapshot prior owners so we can label new assignment vs. reassignment.
+    const prior = await this.prisma.lead.findMany({
+      where: { id: { in: leadIds } },
+      select: { id: true, assignedToId: true },
+    });
+    const caller = await this.prisma.user.findUnique({ where: { id: callerId }, select: { name: true } });
+    const priorById = new Map(prior.map((p) => [p.id, p.assignedToId]));
+
     await this.prisma.$transaction([
       // close prior active assignments for these leads
       this.prisma.assignment.updateMany({
@@ -43,6 +51,22 @@ export class AssignmentsService {
       }),
       this.prisma.assignment.createMany({
         data: leadIds.map((leadId) => ({ leadId, callerId, assignedById, batchName })),
+      }),
+      // Lead Activity Log entry per lead (admin/TL audit trail).
+      this.prisma.activity.createMany({
+        data: leadIds
+          .filter((leadId) => priorById.get(leadId) !== callerId) // skip no-op re-assigns to same owner
+          .map((leadId) => {
+            const had = !!priorById.get(leadId);
+            return {
+              leadId,
+              userId: assignedById,
+              action: had ? 'lead_reassigned' : 'lead_assigned',
+              oldValue: priorById.get(leadId) ?? null,
+              newValue: callerId,
+              remarks: `${had ? 'Reassigned' : 'Assigned'} to ${caller?.name ?? 'caller'}${batchName ? ` (batch: ${batchName})` : ''}`,
+            };
+          }),
       }),
     ]);
     return { assigned: leadIds.length, callerId };

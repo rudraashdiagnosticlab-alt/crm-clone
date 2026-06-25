@@ -3,6 +3,7 @@ import * as crypto from 'crypto';
 import { CommDirection, Timezone, LeadStatus } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service';
 import { OpenPhoneService } from '../openphone/openphone.service';
+import { QuoClient } from '../quo/quo.client';
 
 type Json = Record<string, unknown>;
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v ? v : undefined);
@@ -16,6 +17,7 @@ export class CommunicationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly openphone: OpenPhoneService,
+    private readonly quo: QuoClient,
   ) {}
 
   // ── Webhook signature (HMAC-SHA256 of the raw body) ──
@@ -125,18 +127,38 @@ export class CommunicationsService {
     const quoCallId = str(o.id);
     const existing = quoCallId ? await this.prisma.call.findFirst({ where: { quoCallId } }) : null;
 
-    // Recording / transcript / summary events just enrich the existing call.
     const recordingUrl = str(o.recordingUrl) ?? str((o.recording as Json)?.url);
     const transcript = str(o.transcript) ?? str((o.transcript as Json)?.text);
     const aiSummary = str(o.summary) ?? str((o.aiSummary as Json)?.text) ?? str(o.aiSummary);
-    if (existing && (type.includes('recording') || type.includes('transcript') || type.includes('summary'))) {
+    const status = str(o.status) ?? '';
+    // Quo's exact field name for duration is unknown — tolerate the variants.
+    const durationSecs =
+      typeof o.duration === 'number' ? (o.duration as number)
+      : typeof o.durationSec === 'number' ? (o.durationSec as number)
+      : typeof o.durationSecs === 'number' ? (o.durationSecs as number)
+      : undefined;
+    const isFinal = type.includes('completed') || type.includes('ended') || durationSecs != null;
+
+    // Known call (e.g. one placed via the Quo queue) — enrich it in place. No
+    // phone lookup needed; the call already knows its lead. This is the main
+    // path for call.completed / recording / transcript / summary events.
+    if (existing) {
       await this.prisma.call.update({
         where: { id: existing.id },
-        data: { recordingUrl: recordingUrl ?? undefined, transcript: transcript ?? undefined, aiSummary: aiSummary ?? undefined },
+        data: {
+          ...(status ? { status } : {}),
+          ...(durationSecs != null ? { durationSecs } : {}),
+          recordingUrl: recordingUrl ?? undefined,
+          transcript: transcript ?? undefined,
+          aiSummary: aiSummary ?? undefined,
+          ...(isFinal ? { endTime: new Date() } : {}),
+        },
       });
+      await this.touchLead(existing.leadId);
       return { ok: true, callId: existing.id };
     }
 
+    // New / inbound call from the provider — needs a phone to resolve the lead.
     const direction = this.dir(o.direction);
     const from = str(o.from) ?? '';
     const to = Array.isArray(o.to) ? str(o.to[0]) ?? '' : str(o.to) ?? '';
@@ -145,39 +167,25 @@ export class CommunicationsService {
 
     const lead = await this.findOrCreateLeadByPhone(external);
     const callerId = await this.resolveCallerId(lead.assignedToId);
-    const durationSecs = typeof o.duration === 'number' ? (o.duration as number) : undefined;
-    const status = str(o.status) ?? '';
     const startTime = o.createdAt ? new Date(o.createdAt as string) : new Date();
-
-    let callId: string;
-    if (existing) {
-      const upd = await this.prisma.call.update({
-        where: { id: existing.id },
-        data: { status, durationSecs, recordingUrl: recordingUrl ?? undefined, transcript: transcript ?? undefined, aiSummary: aiSummary ?? undefined, endTime: new Date() },
-      });
-      callId = upd.id;
-    } else {
-      const created = await this.prisma.call.create({
-        data: {
-          leadId: lead.id, callerId, direction, status, durationSecs,
-          recordingUrl: recordingUrl ?? undefined, transcript: transcript ?? undefined, aiSummary: aiSummary ?? undefined,
-          quoCallId, conversationId: str(o.conversationId),
-          startTime, endTime: durationSecs != null ? new Date() : null,
-        },
-      });
-      callId = created.id;
-    }
+    const created = await this.prisma.call.create({
+      data: {
+        leadId: lead.id, callerId, direction, status, durationSecs,
+        recordingUrl: recordingUrl ?? undefined, transcript: transcript ?? undefined, aiSummary: aiSummary ?? undefined,
+        quoCallId, conversationId: str(o.conversationId),
+        startTime, endTime: durationSecs != null ? new Date() : null,
+      },
+    });
     await this.touchLead(lead.id);
 
     // Workflow: missed inbound call → follow-up task for the owner.
     const missed = ['missed', 'no-answer', 'no_answer'].includes(status) || (direction === CommDirection.inbound && durationSecs === 0);
     if (missed) {
-      const ownerId = await this.resolveCallerId(lead.assignedToId);
       await this.prisma.task.create({
-        data: { title: `Follow up: missed call from ${lead.businessName} (${external})`, ownerId, priority: 'high' },
+        data: { title: `Follow up: missed call from ${lead.businessName} (${external})`, ownerId: callerId, priority: 'high' },
       });
     }
-    return { ok: true, callId, missed };
+    return { ok: true, callId: created.id, missed };
   }
 
   // ── Contacts ──
@@ -223,12 +231,53 @@ export class CommunicationsService {
   }
 
   // ── Outbound: click-to-call ──
-  /** Log an outbound call attempt and return a tel: link for the agent's dialer.
-   * The call is enriched later by the provider's call.completed webhook. */
+  /**
+   * Start an outbound call. When a Quo call queue is configured, the call is
+   * routed through it (Quo dials the lead and bridges the agent) — the CRM never
+   * bypasses the queue. The resulting call.* webhook enriches this Call record
+   * with status, duration, recording, transcript and AI summary. Without a queue
+   * configured, falls back to a tel: link for the agent's own dialer.
+   */
   async startCall(leadId: string, callerId: string) {
     const lead = await this.prisma.lead.findFirst({ where: { id: leadId, deletedAt: null } });
     if (!lead) throw new NotFoundException('Lead not found');
 
+    if (this.quo.hasQueue) {
+      const res = await this.quo.placeQueuedCall({ toNumber: lead.phone, leadId: lead.id, agentId: callerId });
+      const call = await this.prisma.call.create({
+        data: {
+          leadId: lead.id,
+          callerId,
+          direction: CommDirection.outbound,
+          status: res.success ? res.data?.status ?? 'queued' : 'failed',
+          quoCallId: res.data?.id,
+          startTime: new Date(),
+        },
+      });
+      await this.prisma.activity.create({
+        data: {
+          leadId: lead.id,
+          userId: callerId,
+          action: 'call_queued',
+          newValue: res.success ? res.data?.status ?? 'queued' : 'failed',
+          remarks: res.success
+            ? `Outbound call routed through Quo queue ${this.quo.queueId}`
+            : `Quo queue dial failed: ${res.error ?? 'unknown error'}`,
+        },
+      });
+      await this.touchLead(lead.id);
+      return {
+        callId: call.id,
+        queued: res.success,
+        queueId: this.quo.queueId,
+        quoCallId: res.data?.id ?? null,
+        status: call.status,
+        phone: lead.phone,
+        error: res.success ? null : res.error ?? null,
+      };
+    }
+
+    // Fallback (no queue configured): tel: link for the agent's dialer.
     const call = await this.prisma.call.create({
       data: {
         leadId: lead.id,
@@ -239,7 +288,7 @@ export class CommunicationsService {
       },
     });
     await this.touchLead(lead.id);
-    return { callId: call.id, tel: `tel:${lead.phone}`, phone: lead.phone };
+    return { callId: call.id, queued: false, tel: `tel:${lead.phone}`, phone: lead.phone };
   }
 
   // ── Unified conversation timeline for a lead ──
@@ -282,7 +331,10 @@ export class CommunicationsService {
       orderBy: { startTime: 'desc' },
     });
     if (!call) return null;
-    return { callId: call.id, at: call.startTime, status: call.status, lead: call.lead };
+    // "Connected" = Quo reports the call as live/answered (drives the popup's
+    // auto-open). Conservative allowlist so ringing/initiated don't trigger it.
+    const connected = ['in-progress', 'in_progress', 'answered', 'connected', 'ongoing', 'active'].includes((call.status ?? '').toLowerCase());
+    return { callId: call.id, at: call.startTime, status: call.status, connected, lead: call.lead };
   }
 
   // ── Communication analytics ──

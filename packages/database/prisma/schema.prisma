@@ -37,21 +37,18 @@ enum LeadStatus {
   rejected
 }
 
-enum CallOutcome {
-  callback
-  interested
-  no_answer
-  busy
-  wrong_number
-  closed_deal
-  follow_up_required
-}
-
 enum NotificationType {
   target_complete
   low_progress
   new_leads
   idle_alert
+  callback_reminder
+  callback_due
+  callback_missed
+  zoom_scheduled
+  zoom_reminder
+  zoom_due
+  zoom_cancelled
 }
 
 enum AiTopic {
@@ -88,6 +85,30 @@ enum QuoSyncStatus {
   failed
 }
 
+/// Zoom meeting lifecycle status
+enum ZoomMeetingStatus {
+  scheduled
+  in_progress
+  completed
+  cancelled
+  rescheduled
+}
+
+/// User work availability (drives auto-reassignment)
+enum Availability {
+  online
+  offline
+}
+
+/// Type of work item that was auto-reassigned
+enum ReassignType {
+  call
+  callback
+  followup
+  zoom
+  task
+}
+
 // ─────────────────────────── Core ────────────────────────────
 
 /// DB-001 — all system users
@@ -102,6 +123,13 @@ model User {
   // MFA (TOTP) — see auth module
   mfaEnabled Boolean @default(false) @map("mfa_enabled")
   mfaSecret  String? @map("mfa_secret")
+
+  // ── Availability & auto-reassignment ──
+  availability       Availability @default(online)
+  availabilityReason String?      @map("availability_reason") // Leave / Holiday / Unavailable / No Login
+  lastLoginAt        DateTime?    @map("last_login_at")
+  shiftStart         String?      @map("shift_start") // "HH:mm" local start time (default 09:00)
+  noLoginHandledOn   DateTime?    @map("no_login_handled_on") @db.Date // dedupe stamp for the no-login cron
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -121,6 +149,8 @@ model User {
   coachingReports   VoiceCoachingReport[]
   tasks             Task[]
   preferences       UserPreference[]
+  zoomMeetings      ZoomMeeting[]         @relation("ZoomOrganizer")
+  zoomActivities    ZoomMeetingActivity[] @relation("ZoomActivityUser")
 
   @@index([role])
   @@index([isActive])
@@ -136,6 +166,25 @@ model AppSetting {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("app_settings")
+}
+
+/// Admin-configurable call outcomes (dispositions). `slug` is stored on
+/// Call.outcome; `schedulesCallback` flags outcomes that open the callback
+/// workflow (mandatory date/time, pinned queue, reminders).
+model Outcome {
+  id                String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  slug              String      @unique
+  name              String
+  color             String      @default("#6b7359")
+  schedulesCallback Boolean     @default(false) @map("schedules_callback")
+  schedulesZoom     Boolean     @default(false) @map("schedules_zoom") // prompts a Zoom meeting on this outcome
+  leadStatus        LeadStatus? @map("lead_status") // status applied to the lead on this outcome
+  sortOrder         Int         @default(0) @map("sort_order")
+  isActive          Boolean     @default(true) @map("is_active")
+  createdAt         DateTime    @default(now()) @map("created_at")
+  updatedAt         DateTime    @updatedAt @map("updated_at")
+
+  @@map("outcomes")
 }
 
 /// Per-user UI preferences (key-value). Used for customizable table column
@@ -186,6 +235,12 @@ model Lead {
   comments         String? // COMMENTS
   leadCategory     String?   @map("lead_category") // LEAD CATEGORY
   nextFollowUpDate DateTime? @map("next_follow_up_date") // NEXT FOLLOW UP DATE
+  callbackAt       DateTime? @map("callback_at")
+  callbackCompletedAt DateTime? @map("callback_completed_at")
+  // Reminder dedupe stamps — set once each reminder fires so the cron never repeats.
+  callbackReminderDayBeforeAt DateTime? @map("callback_reminder_day_before_at")
+  callbackReminderDueAt       DateTime? @map("callback_reminder_due_at")
+  callbackReminderMissedAt    DateTime? @map("callback_reminder_missed_at")
   // CALLER → assignedTo (User relation below)
 
   // ── Quo (OpenPhone) telephony ──
@@ -206,12 +261,13 @@ model Lead {
   updatedAt DateTime  @updatedAt @map("updated_at")
   deletedAt DateTime? @map("deleted_at")
 
-  assignments Assignment[]
-  calls       Call[]
-  notes       Note[]
-  activities  Activity[]
-  quoSyncLogs QuoSyncLog[]
-  messages    Message[]
+  assignments  Assignment[]
+  calls        Call[]
+  notes        Note[]
+  activities   Activity[]
+  quoSyncLogs  QuoSyncLog[]
+  messages     Message[]
+  zoomMeetings ZoomMeeting[]
 
   // DB-015 — indexes on every dashboard filter column
   @@unique([leadId])
@@ -243,6 +299,84 @@ model QuoSyncLog {
   @@map("quo_sync_logs")
 }
 
+/// Zoom meeting scheduled with a client (lead). Behaves like a callback in the
+/// Call Panel (pinned when due) and maintains a full per-client meeting history.
+model ZoomMeeting {
+  id          String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  leadId      String            @map("lead_id") @db.Uuid
+  lead        Lead              @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  organizerId String?           @map("organizer_id") @db.Uuid
+  organizer   User?             @relation("ZoomOrganizer", fields: [organizerId], references: [id])
+
+  title        String?
+  scheduledAt  DateTime          @map("scheduled_at")
+  durationMins Int               @default(30) @map("duration_mins")
+  status       ZoomMeetingStatus @default(scheduled)
+
+  // ── Zoom join details (manual now; populated by a Zoom API later) ──
+  joinUrl      String? @map("join_url")
+  meetingId    String? @map("meeting_id") // Zoom meeting id
+  passcode     String?
+  participants String? // invited participants (names / emails)
+
+  // ── Lifecycle timestamps ──
+  startedAt DateTime? @map("started_at")
+  endedAt   DateTime? @map("ended_at")
+
+  // ── Reminder dedupe stamps (set once each reminder fires; reset on reschedule) ──
+  reminderDayBeforeAt DateTime? @map("reminder_day_before_at")
+  reminderDueAt       DateTime? @map("reminder_due_at")
+
+  // ── Pre-meeting context ──
+  agenda String? // meeting agenda
+  reason String? // why the meeting was conducted
+
+  // ── Post-meeting record (history) ──
+  outcome        String?
+  notes          String?
+  summary        String? // what was discussed
+  clientFeedback String?   @map("client_feedback")
+  decisions      String? // decisions made during the meeting
+  actionItems    String?   @map("action_items") // newline-separated action items
+  followUpAt     DateTime? @map("follow_up_at") // next meeting / follow-up time
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // ── Linked task (auto-created & kept in sync with the Tasks module) ──
+  taskId String? @unique @map("task_id") @db.Uuid
+  task   Task?   @relation("ZoomMeetingTask", fields: [taskId], references: [id], onDelete: SetNull)
+
+  activities ZoomMeetingActivity[]
+
+  @@index([leadId])
+  @@index([organizerId])
+  @@index([scheduledAt])
+  @@index([status])
+  @@map("zoom_meetings")
+}
+
+/// Audit trail for a Zoom meeting — one row per action/modification.
+model ZoomMeetingActivity {
+  id        String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  meetingId String      @map("meeting_id") @db.Uuid
+  meeting   ZoomMeeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  userId    String?     @map("user_id") @db.Uuid
+  user      User?       @relation("ZoomActivityUser", fields: [userId], references: [id])
+
+  action   String // created | rescheduled | cancelled | started | completed | notes_updated | outcome_updated | follow_up_created | updated …
+  field    String? // which field changed (when applicable)
+  oldValue String? @map("old_value")
+  newValue String? @map("new_value")
+  remarks  String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([meetingId])
+  @@index([createdAt])
+  @@map("zoom_meeting_activities")
+}
+
 /// DB-003 — planned lead targets per city
 model Target {
   id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
@@ -270,6 +404,7 @@ model Activity {
   action    String
   oldValue  String?  @map("old_value")
   newValue  String?  @map("new_value")
+  remarks   String?
   ipAddress String?  @map("ip_address")
   createdAt DateTime @default(now()) @map("created_at")
 
@@ -277,6 +412,29 @@ model Activity {
   @@index([userId])
   @@index([createdAt])
   @@map("activities")
+}
+
+/// Audit/feed of work auto-reassigned when a user goes offline (or fails to
+/// log in). Denormalized (owner name + client name) so the new assignee's
+/// dashboard can render it without joins.
+model WorkReassignment {
+  id           String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  type         ReassignType
+  reason       String // Offline / Leave / Holiday / No Login / Unavailable
+  fromUserId   String       @map("from_user") @db.Uuid
+  fromUserName String       @map("from_user_name")
+  toUserId     String       @map("to_user") @db.Uuid
+  leadId       String?      @map("lead_id") @db.Uuid
+  zoomMeetingId String?     @map("zoom_meeting_id") @db.Uuid
+  taskId       String?      @map("task_id") @db.Uuid
+  clientName   String?      @map("client_name")
+  scheduledAt  DateTime?    @map("scheduled_at")
+  acknowledged Boolean      @default(false)
+  createdAt    DateTime     @default(now()) @map("created_at")
+
+  @@index([toUserId, acknowledged])
+  @@index([createdAt])
+  @@map("work_reassignments")
 }
 
 // ─────────────────────────── Calling ─────────────────────────
@@ -310,7 +468,7 @@ model Call {
   endTime      DateTime?    @map("end_time")
   durationSecs Int?         @map("duration_secs")
   recordingUrl String?      @map("recording_url")
-  outcome      CallOutcome?
+  outcome      String? // Outcome.slug — configurable list (see model Outcome)
   providerSid  String?      @map("provider_sid") // Twilio call SID
   createdAt    DateTime     @default(now()) @map("created_at")
 
@@ -436,6 +594,8 @@ model Task {
   owner     User         @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   createdAt DateTime     @default(now()) @map("created_at")
   updatedAt DateTime     @updatedAt @map("updated_at")
+
+  zoomMeeting ZoomMeeting? @relation("ZoomMeetingTask")
 
   @@index([ownerId, status])
   @@map("tasks")
