@@ -27,7 +27,8 @@ async function bootstrap() {
     .build();
   SwaggerModule.setup('api/docs', app, SwaggerModule.createDocument(app, config));
 
-  const port = Number(process.env.API_PORT ?? 4000);
+  // Render/most PaaS inject PORT; fall back to API_PORT for local dev.
+  const port = Number(process.env.PORT ?? process.env.API_PORT ?? 4000);
   await app.listen(port);
   console.log(`API ready on http://localhost:${port}/api  (docs: /api/docs)`);
 }
