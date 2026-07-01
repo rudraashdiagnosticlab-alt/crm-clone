@@ -7,7 +7,7 @@ export type IntegrationProvider = 'openphone' | 'quo';
 /** Friendly field → env var mapping per provider. */
 const ENV_KEYS: Record<IntegrationProvider, string[]> = {
   openphone: ['OPENPHONE_API_KEY', 'OPENPHONE_BASE_URL', 'OPENPHONE_WEBHOOK_SECRET'],
-  quo: ['QUO_BASE_URL', 'QUO_API_KEY', 'QUO_QUEUE_ID'],
+  quo: ['QUO_BASE_URL', 'QUO_API_KEY'],
 };
 
 const mask = (v?: string) => (v && v.length >= 4 ? `••••${v.slice(-4)}` : v ? '••••' : null);
@@ -80,8 +80,6 @@ export class IntegrationConfigService implements OnModuleInit {
         sandbox: !has('QUO_BASE_URL') || !has('QUO_API_KEY') || env.QUO_SANDBOX === 'true',
         baseUrl: env.QUO_BASE_URL || '',
         apiKeyHint: mask(env.QUO_API_KEY),
-        queueId: env.QUO_QUEUE_ID || null,
-        queueConfigured: has('QUO_QUEUE_ID'),
       },
     };
   }

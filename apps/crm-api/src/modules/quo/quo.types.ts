@@ -29,20 +29,3 @@ export interface QuoCallResult {
   rawResponse?: unknown;
   durationMs: number;
 }
-
-/** Request to place an outbound call through a Quo call queue. */
-export interface QuoQueueCallRequest {
-  toNumber: string; // the lead's phone
-  leadId?: string; // our lead id (echoed back on the call.* webhook)
-  agentId?: string; // the CRM caller placing the call
-}
-
-/** Quo's acknowledgement of a queued call. */
-export interface QuoQueueCallResult {
-  success: boolean;
-  statusCode?: number;
-  data?: { id: string; status: string; queueId: string };
-  error?: string;
-  rawResponse?: unknown;
-  durationMs: number;
-}

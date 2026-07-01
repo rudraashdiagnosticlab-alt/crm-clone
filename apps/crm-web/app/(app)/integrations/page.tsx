@@ -153,7 +153,6 @@ export default function IntegrationsPage() {
           provider={connect}
           hint={connect === 'openphone' ? intg?.openphone.apiKeyHint ?? null : intg?.quo.apiKeyHint ?? null}
           baseUrl={connect === 'openphone' ? intg?.openphone.baseUrl ?? '' : intg?.quo.baseUrl ?? ''}
-          quoQueueId={intg?.quo.queueId ?? ''}
           onClose={() => setConnect(null)}
           onSaved={() => { refresh(); setConnect(null); }}
         />
@@ -229,14 +228,12 @@ function ConnectModal({
   provider,
   hint,
   baseUrl,
-  quoQueueId,
   onClose,
   onSaved,
 }: {
   provider: ConnectProvider;
   hint: string | null;
   baseUrl: string;
-  quoQueueId?: string;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -244,11 +241,10 @@ function ConnectModal({
   const [apiKey, setApiKey] = useState('');
   const [url, setUrl] = useState(baseUrl || (isOP ? 'https://api.openphone.com/v1' : ''));
   const [webhookSecret, setWebhookSecret] = useState('');
-  const [queueId, setQueueId] = useState(quoQueueId ?? '');
 
   const save = useMutation({
     mutationFn: () =>
-      isOP ? integrationsApi.connectOpenPhone(apiKey, url, webhookSecret || undefined) : integrationsApi.connectQuo(url, apiKey, queueId || undefined),
+      isOP ? integrationsApi.connectOpenPhone(apiKey, url, webhookSecret || undefined) : integrationsApi.connectQuo(url, apiKey),
     onSuccess: (res: { connected?: boolean; error?: string | null }) => {
       // OpenPhone returns a live probe result; only close if it actually connected.
       if (isOP && res && res.connected === false) return;
@@ -278,12 +274,6 @@ function ConnectModal({
             <span className="font-medium">API Key</span>
             <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} required placeholder={hint ? `Saved (${hint}) — enter to replace` : 'Paste API key'} className="w-full rounded-md border bg-background px-3 py-2 text-sm" />
           </label>
-          {!isOP && (
-            <label className="block space-y-1 text-sm">
-              <span className="font-medium">Call Queue ID <span className="text-muted-foreground">(outbound calls route through this queue)</span></span>
-              <input value={queueId} onChange={(e) => setQueueId(e.target.value)} placeholder="e.g. queue_abc123" className="w-full rounded-md border bg-background px-3 py-2 text-sm" />
-            </label>
-          )}
           {isOP && (
             <>
               <label className="block space-y-1 text-sm">

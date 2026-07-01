@@ -1,9 +1,8 @@
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import * as crypto from 'crypto';
 import { CommDirection, Timezone, LeadStatus } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service';
 import { OpenPhoneService } from '../openphone/openphone.service';
-import { QuoClient } from '../quo/quo.client';
 
 type Json = Record<string, unknown>;
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v ? v : undefined);
@@ -17,7 +16,6 @@ export class CommunicationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly openphone: OpenPhoneService,
-    private readonly quo: QuoClient,
   ) {}
 
   // ── Webhook signature (HMAC-SHA256 of the raw body) ──
@@ -130,7 +128,16 @@ export class CommunicationsService {
     const recordingUrl = str(o.recordingUrl) ?? str((o.recording as Json)?.url);
     const transcript = str(o.transcript) ?? str((o.transcript as Json)?.text);
     const aiSummary = str(o.summary) ?? str((o.aiSummary as Json)?.text) ?? str(o.aiSummary);
-    const status = str(o.status) ?? '';
+    // Normalize the live phase from the event type when the provider omits an
+    // explicit status — drives the in-CRM widget's Ringing/Connected/Hold states.
+    const statusFromType =
+      type.includes('ringing') ? 'ringing'
+      : type.includes('unhold') ? 'in-progress'
+      : type.includes('hold') ? 'on_hold'
+      : type.includes('answered') || type.includes('in-progress') || type.includes('in_progress') ? 'in-progress'
+      : type.includes('completed') || type.includes('ended') ? 'completed'
+      : '';
+    const status = str(o.status) ?? statusFromType;
     // Quo's exact field name for duration is unknown — tolerate the variants.
     const durationSecs =
       typeof o.duration === 'number' ? (o.duration as number)
@@ -200,13 +207,19 @@ export class CommunicationsService {
 
   // ── Outbound: SMS ──
   /** Send an SMS to a lead and record it on the timeline. */
-  async sendSms(leadId: string, body: string, from?: string) {
+  async sendSms(leadId: string, body: string, callerId?: string, from?: string) {
     const lead = await this.prisma.lead.findFirst({ where: { id: leadId, deletedAt: null } });
     if (!lead) throw new NotFoundException('Lead not found');
     if (!body?.trim()) throw new BadRequestException('Message body is required');
 
-    // Resolve a "from" number: explicit, else the first workspace number.
+    // Resolve a "from" number, in order of precedence:
+    //  1. explicit override, 2. the caller's admin-assigned OpenPhone number,
+    //  3. the first workspace number.
     let fromNumber = from;
+    if (!fromNumber && callerId) {
+      const caller = await this.prisma.user.findUnique({ where: { id: callerId }, select: { openphoneNumber: true } });
+      fromNumber = caller?.openphoneNumber ?? undefined;
+    }
     if (!fromNumber) {
       const status = await this.openphone.status();
       fromNumber = status.phoneNumbers[0]?.number;
@@ -232,52 +245,18 @@ export class CommunicationsService {
 
   // ── Outbound: click-to-call ──
   /**
-   * Start an outbound call. When a Quo call queue is configured, the call is
-   * routed through it (Quo dials the lead and bridges the agent) — the CRM never
-   * bypasses the queue. The resulting call.* webhook enriches this Call record
-   * with status, duration, recording, transcript and AI summary. Without a queue
-   * configured, falls back to a tel: link for the agent's own dialer.
+   * Start an outbound call. Quo/OpenPhone exposes no API to place a call, so
+   * outbound is an app-handoff: the CRM logs the call and hands the number to the
+   * agent's OpenPhone dialer via a tel: link, staying the live monitor. The
+   * resulting call.* webhook enriches this Call record with status, duration,
+   * recording, transcript and AI summary.
    */
   async startCall(leadId: string, callerId: string) {
     const lead = await this.prisma.lead.findFirst({ where: { id: leadId, deletedAt: null } });
     if (!lead) throw new NotFoundException('Lead not found');
 
-    if (this.quo.hasQueue) {
-      const res = await this.quo.placeQueuedCall({ toNumber: lead.phone, leadId: lead.id, agentId: callerId });
-      const call = await this.prisma.call.create({
-        data: {
-          leadId: lead.id,
-          callerId,
-          direction: CommDirection.outbound,
-          status: res.success ? res.data?.status ?? 'queued' : 'failed',
-          quoCallId: res.data?.id,
-          startTime: new Date(),
-        },
-      });
-      await this.prisma.activity.create({
-        data: {
-          leadId: lead.id,
-          userId: callerId,
-          action: 'call_queued',
-          newValue: res.success ? res.data?.status ?? 'queued' : 'failed',
-          remarks: res.success
-            ? `Outbound call routed through Quo queue ${this.quo.queueId}`
-            : `Quo queue dial failed: ${res.error ?? 'unknown error'}`,
-        },
-      });
-      await this.touchLead(lead.id);
-      return {
-        callId: call.id,
-        queued: res.success,
-        queueId: this.quo.queueId,
-        quoCallId: res.data?.id ?? null,
-        status: call.status,
-        phone: lead.phone,
-        error: res.success ? null : res.error ?? null,
-      };
-    }
-
-    // Fallback (no queue configured): tel: link for the agent's dialer.
+    // The caller's admin-assigned OpenPhone number is the line they dial from.
+    const caller = await this.prisma.user.findUnique({ where: { id: callerId }, select: { openphoneNumber: true } });
     const call = await this.prisma.call.create({
       data: {
         leadId: lead.id,
@@ -287,8 +266,19 @@ export class CommunicationsService {
         startTime: new Date(),
       },
     });
+    await this.prisma.activity.create({
+      data: {
+        leadId: lead.id,
+        userId: callerId,
+        action: 'call_started',
+        newValue: 'initiated',
+        remarks: caller?.openphoneNumber
+          ? `Outbound call to ${lead.phone} from ${caller.openphoneNumber} (via OpenPhone dialer)`
+          : `Outbound call to ${lead.phone} (via OpenPhone dialer)`,
+      },
+    });
     await this.touchLead(lead.id);
-    return { callId: call.id, queued: false, tel: `tel:${lead.phone}`, phone: lead.phone };
+    return { callId: call.id, tel: `tel:${lead.phone}`, phone: lead.phone };
   }
 
   // ── Unified conversation timeline for a lead ──
@@ -315,6 +305,79 @@ export class CommunicationsService {
     ].sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
 
     return items;
+  }
+
+  // ── Outbound: dial-pad call to an arbitrary number ──
+  /** Place a call to a typed number: resolve (or create) the lead, then dial. */
+  async startCallByPhone(phone: string, callerId: string) {
+    const trimmed = phone?.trim();
+    if (!trimmed || digits(trimmed).length < 3) throw new BadRequestException('A valid phone number is required');
+    const lead = await this.findOrCreateLeadByPhone(trimmed);
+    const result = await this.startCall(lead.id, callerId);
+    return {
+      ...result,
+      lead: { id: lead.id, businessName: lead.businessName, phone: lead.phone, city: lead.city, state: lead.state },
+    };
+  }
+
+  // ── Live call state (polled by the in-CRM call widget) ──
+  // Cockpit model: the queue/provider places the call; the CRM is the single
+  // interface showing live state. Until real provider webhooks drive the status
+  // (i.e. sandbox or no queue configured), the phase is simulated deterministically
+  // from elapsed time so the whole experience is demoable without a live provider.
+  async getCallState(callId: string, userId: string, role: string) {
+    const call = await this.prisma.call.findUnique({
+      where: { id: callId },
+      include: {
+        lead: { select: { id: true, businessName: true, phone: true, city: true, state: true } },
+        caller: { select: { name: true } },
+      },
+    });
+    if (!call) throw new NotFoundException('Call not found');
+    if (role !== 'admin' && role !== 'team_leader' && call.callerId !== userId) {
+      throw new ForbiddenException('Not your call');
+    }
+
+    const raw = (call.status ?? '').toLowerCase();
+    const terminal = ['completed', 'ended', 'failed', 'missed', 'no-answer', 'no_answer', 'canceled', 'cancelled'];
+    const ended = !!call.endTime || terminal.includes(raw);
+    // Outbound is an app-handoff with no API-driven live state, so live phases are
+    // simulated from elapsed time. Real inbound statuses (from call.* webhooks) are
+    // honored above via `raw` before this time-based fallback applies.
+    const simulated = true;
+    const elapsedMs = Date.now() - call.startTime.getTime();
+
+    type Phase = 'initiated' | 'ringing' | 'connected' | 'on_hold' | 'ended';
+    let phase: Phase;
+    if (ended) phase = 'ended';
+    else if (['hold', 'on_hold', 'on-hold'].includes(raw)) phase = 'on_hold';
+    else if (['in-progress', 'in_progress', 'answered', 'connected', 'ongoing', 'active'].includes(raw)) phase = 'connected';
+    else if (raw === 'ringing') phase = 'ringing';
+    else if (simulated) phase = elapsedMs < 2000 ? 'initiated' : elapsedMs < 4500 ? 'ringing' : 'connected';
+    else phase = 'initiated';
+
+    const connected = phase === 'connected' || phase === 'on_hold';
+    // Simulated calls "connect" ~4.5s in; don't count the ring time as talk time.
+    const talkSecs = Math.max(0, Math.round(elapsedMs / 1000) - (simulated ? 4 : 0));
+    const durationSecs = ended
+      ? call.durationSecs ?? Math.max(0, Math.round(((call.endTime ?? new Date()).getTime() - call.startTime.getTime()) / 1000))
+      : connected
+        ? talkSecs
+        : 0;
+
+    const canViewRecordings = role === 'admin' || role === 'team_leader';
+    return {
+      callId: call.id,
+      phase,
+      status: call.status,
+      onHold: phase === 'on_hold',
+      startedAt: call.startTime,
+      endedAt: call.endTime,
+      durationSecs: Math.max(0, durationSecs),
+      recordingUrl: canViewRecordings ? call.recordingUrl : null,
+      lead: call.lead,
+      by: call.caller?.name ?? null,
+    };
   }
 
   // ── Incoming-call popup: most recent inbound call in the last 60s ──

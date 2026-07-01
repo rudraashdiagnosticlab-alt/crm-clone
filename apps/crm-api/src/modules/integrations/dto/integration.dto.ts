@@ -28,9 +28,4 @@ export class ConnectQuoDto {
   @IsString()
   @MinLength(1)
   apiKey: string;
-
-  @ApiPropertyOptional({ description: 'Quo call-queue id — outbound calls route through it' })
-  @IsOptional()
-  @IsString()
-  queueId?: string;
 }

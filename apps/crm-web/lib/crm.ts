@@ -301,14 +301,23 @@ export interface TimelineItem {
 export interface StartCallResult {
   callId: string;
   phone: string;
-  /** True when the call was routed through the Quo queue. */
-  queued?: boolean;
-  queueId?: string;
-  quoCallId?: string | null;
   status?: string;
   error?: string | null;
-  /** Present only when no queue is configured (fallback to the agent's dialer). */
+  /** tel: link handed to the agent's OpenPhone dialer to place the call. */
   tel?: string;
+}
+export type CallPhase = 'initiated' | 'ringing' | 'connected' | 'on_hold' | 'ended';
+export interface CallState {
+  callId: string;
+  phase: CallPhase;
+  status: string | null;
+  onHold: boolean;
+  startedAt: string;
+  endedAt: string | null;
+  durationSecs: number;
+  recordingUrl: string | null;
+  lead: { id: string; businessName: string; phone: string; city: string; state: string };
+  by: string | null;
 }
 export const communicationsApi = {
   timeline: async (leadId: string): Promise<TimelineItem[]> =>
@@ -317,6 +326,10 @@ export const communicationsApi = {
     (await api.post(`/communications/lead/${leadId}/sms`, { body })).data,
   startCall: async (leadId: string): Promise<StartCallResult> =>
     (await api.post(`/communications/lead/${leadId}/call`, {})).data,
+  startCallByPhone: async (phone: string): Promise<StartCallResult & { lead: CallState['lead'] }> =>
+    (await api.post(`/communications/call`, { phone })).data,
+  callState: async (callId: string): Promise<CallState> =>
+    (await api.get(`/communications/call/${callId}/state`)).data,
   latestIncoming: async (): Promise<IncomingCall | null> =>
     (await api.get('/communications/incoming/latest')).data,
   analytics: async (period = 'week'): Promise<CommAnalytics> =>
@@ -340,14 +353,14 @@ export interface CommAnalytics {
 
 export interface IntegrationStatus {
   openphone: { provider: string; configured: boolean; sandbox: boolean; baseUrl: string; apiKeyHint: string | null };
-  quo: { provider: string; configured: boolean; sandbox: boolean; baseUrl: string; apiKeyHint: string | null; queueId: string | null; queueConfigured: boolean };
+  quo: { provider: string; configured: boolean; sandbox: boolean; baseUrl: string; apiKeyHint: string | null };
 }
 export const integrationsApi = {
   status: async (): Promise<IntegrationStatus> => (await api.get('/integrations/status')).data,
   connectOpenPhone: async (apiKey: string, baseUrl?: string, webhookSecret?: string) =>
     (await api.put('/integrations/openphone', { apiKey, baseUrl, webhookSecret })).data,
-  connectQuo: async (baseUrl: string, apiKey: string, queueId?: string) =>
-    (await api.put('/integrations/quo', { baseUrl, apiKey, queueId })).data,
+  connectQuo: async (baseUrl: string, apiKey: string) =>
+    (await api.put('/integrations/quo', { baseUrl, apiKey })).data,
   disconnect: async (provider: 'openphone' | 'quo') =>
     (await api.delete(`/integrations/${provider}`)).data,
 };
