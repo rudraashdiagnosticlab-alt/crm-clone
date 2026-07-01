@@ -11,6 +11,8 @@ export interface User {
   mfaEnabled?: boolean;
   availability?: 'online' | 'offline';
   shiftStart?: string | null;
+  /** OpenPhone number this caller sends SMS / dials from (E.164). */
+  openphoneNumber?: string | null;
   createdAt: string;
   updatedAt?: string;
 }
@@ -20,6 +22,7 @@ export interface CreateUserInput {
   email: string;
   password: string;
   role: UserRole;
+  openphoneNumber?: string;
 }
 
 export interface UpdateUserInput {
@@ -31,6 +34,8 @@ export interface UpdateUserInput {
   password?: string;
   /** Shift start "HH:mm" (or '' to clear) — enables no-login auto-reassignment. */
   shiftStart?: string;
+  /** OpenPhone number (E.164, or '' to clear). */
+  openphoneNumber?: string;
 }
 
 export const usersApi = {

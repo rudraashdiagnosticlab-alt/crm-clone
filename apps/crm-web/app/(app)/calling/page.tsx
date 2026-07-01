@@ -11,6 +11,7 @@ import { PageHead, Avatar } from '@/components/page-head';
 import { StatusPill } from '@/components/status-pill';
 import { OutcomePill } from '@/components/outcome-pill';
 import { KpiCard } from '@/components/dashboard/kpi-card';
+import { DialPad } from '@/components/dial-pad';
 
 // True when an ISO timestamp falls on the current calendar day.
 function isToday(iso: string | null | undefined): boolean {
@@ -289,8 +290,10 @@ export default function CallingPage() {
           </div>
         </div>
 
-        {/* Right: queue */}
+        {/* Right: dial pad + queue */}
         <div className="space-y-[18px]">
+          {/* Dial pad — call any number directly from the CRM (live status in the docked widget) */}
+          <DialPad />
           {/* Pinned Zoom meetings due today — a pending action like a callback */}
           {zoomDue.length > 0 && (
             <div className="overflow-hidden rounded-2xl border border-[#bcd9ff] bg-[#f2f8ff] shadow-sm">

@@ -128,6 +128,10 @@ model User {
   availability       Availability @default(online)
   availabilityReason String?      @map("availability_reason") // Leave / Holiday / Unavailable / No Login
   lastLoginAt        DateTime?    @map("last_login_at")
+
+  // OpenPhone/Quo number this caller sends SMS and dials from (E.164, e.g. +15551234567).
+  // Admin-assigned; falls back to the first workspace number when unset.
+  openphoneNumber String? @map("openphone_number")
   shiftStart         String?      @map("shift_start") // "HH:mm" local start time (default 09:00)
   noLoginHandledOn   DateTime?    @map("no_login_handled_on") @db.Date // dedupe stamp for the no-login cron
 

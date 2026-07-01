@@ -11,9 +11,9 @@ import { CurrentUser, AuthUser } from '../../common/decorators/current-user.deco
 export class AuthController {
   constructor(private readonly auth: AuthService) {}
 
-  // SEC-008 — login limited to 10 attempts / 15 min / IP
+  // SEC-008 — login limited to 20 attempts / 15 min / IP
   @Public()
-  @Throttle({ default: { limit: 10, ttl: 15 * 60 * 1000 } })
+  @Throttle({ default: { limit: 20, ttl: 15 * 60 * 1000 } })
   @Post('login')
   @HttpCode(200)
   login(@Body() dto: LoginDto) {

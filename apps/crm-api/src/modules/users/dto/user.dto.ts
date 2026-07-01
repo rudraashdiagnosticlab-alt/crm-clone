@@ -19,6 +19,11 @@ export class CreateUserDto {
   @ApiProperty({ enum: Role, example: Role.employee })
   @IsEnum(Role)
   role: Role;
+
+  @ApiPropertyOptional({ example: '+15551234567', description: 'OpenPhone number this caller sends SMS / dials from (E.164)' })
+  @IsOptional()
+  @IsString()
+  openphoneNumber?: string;
 }
 
 export class UpdateUserDto extends PartialType(CreateUserDto) {

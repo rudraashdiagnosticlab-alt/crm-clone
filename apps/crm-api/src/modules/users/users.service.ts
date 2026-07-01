@@ -14,6 +14,7 @@ const SAFE_SELECT = {
   mfaEnabled: true,
   availability: true,
   shiftStart: true,
+  openphoneNumber: true,
   createdAt: true,
   updatedAt: true,
 } satisfies Prisma.UserSelect;
@@ -49,6 +50,7 @@ export class UsersService {
         email: dto.email,
         role: dto.role,
         passwordHash,
+        ...(dto.openphoneNumber?.trim() ? { openphoneNumber: dto.openphoneNumber.trim() } : {}),
         ...(dto.role === 'employee' ? { employee: { create: {} } } : {}),
       },
       select: SAFE_SELECT,
@@ -64,6 +66,7 @@ export class UsersService {
       role: dto.role,
       isActive: dto.isActive,
       ...(dto.shiftStart !== undefined ? { shiftStart: dto.shiftStart.trim() || null } : {}),
+      ...(dto.openphoneNumber !== undefined ? { openphoneNumber: dto.openphoneNumber.trim() || null } : {}),
     };
     if (dto.password) data.passwordHash = await bcrypt.hash(dto.password, 12);
     return this.prisma.user.update({ where: { id }, data, select: SAFE_SELECT });

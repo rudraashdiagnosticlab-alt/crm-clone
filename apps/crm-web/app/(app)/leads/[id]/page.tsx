@@ -8,6 +8,7 @@ import { motion } from 'framer-motion';
 import { Phone, MessageSquare, Info } from 'lucide-react';
 import { leadsApi } from '@/lib/leads';
 import { communicationsApi } from '@/lib/crm';
+import { useCall } from '@/components/call-provider';
 import { QuoStatusBadge } from '@/components/quo-status-badge';
 import { ZoomTimeline } from '@/components/zoom-timeline';
 import { LeadActivityDrawer } from '@/components/lead-activity-log';
@@ -44,15 +45,8 @@ export default function LeadDetailPage() {
     qc.invalidateQueries({ queryKey: ['lead', id, 'timeline'] });
     qc.invalidateQueries({ queryKey: ['lead', id, 'activities'] });
   };
-  const call = useMutation({
-    mutationFn: () => communicationsApi.startCall(id),
-    onSuccess: (res) => {
-      // Queue-routed (Quo): the call is placed server-side — no tel: handoff.
-      // Fallback (no queue): open the agent's dialer via the tel: link.
-      if (!res.queued && res.tel && typeof window !== 'undefined') window.location.href = res.tel;
-      refreshTimeline();
-    },
-  });
+  // In-CRM cockpit: opens the docked call widget with live status + wrap-up.
+  const { placeCall, active: callActive } = useCall();
   const sms = useMutation({
     mutationFn: () => communicationsApi.sendSms(id, smsBody),
     onSuccess: () => { setSmsBody(''); setSmsOpen(false); refreshTimeline(); },
@@ -92,11 +86,11 @@ export default function LeadDetailPage() {
         <h1 className="text-lg font-semibold">{lead.leadId}</h1>
         <div className="ml-auto flex items-center gap-2">
           <button
-            onClick={() => call.mutate()}
-            disabled={call.isPending}
+            onClick={() => placeCall({ id: lead.id, businessName: lead.businessName, phone: lead.phone, city: lead.city, state: lead.state })}
+            disabled={callActive}
             className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[13px] font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-60"
           >
-            <Phone className="h-4 w-4" /> {call.isPending ? 'Dialing…' : call.data?.queued ? 'Queued via Quo' : 'Call'}
+            <Phone className="h-4 w-4" /> {callActive ? 'On call…' : 'Call'}
           </button>
           <button
             onClick={() => setSmsOpen((v) => !v)}

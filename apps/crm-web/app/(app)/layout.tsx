@@ -8,6 +8,7 @@ import { canAccessPath, type Role } from '@/lib/nav';
 import { Sidebar } from '@/components/sidebar';
 import { Topbar } from '@/components/topbar';
 import { IncomingCallPopup } from '@/components/incoming-call';
+import { CallProvider } from '@/components/call-provider';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -37,24 +38,26 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }, [role, pathname, router]);
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background">
-      <Sidebar />
-      <div className="flex flex-1 flex-col overflow-hidden">
-        <Topbar email={me?.email} />
-        <main ref={mainRef} className="flex-1 overflow-y-auto">
-          <div className="mx-auto w-full max-w-[1500px] p-6">
-            {allowed ? children : (
-              <div className="grid h-[60vh] place-items-center text-center">
-                <div>
-                  <p className="font-display text-lg font-semibold">Access restricted</p>
-                  <p className="mt-1 text-sm text-muted-foreground">You don’t have permission to view this page. Redirecting…</p>
+    <CallProvider>
+      <div className="flex h-screen overflow-hidden bg-background">
+        <Sidebar />
+        <div className="flex flex-1 flex-col overflow-hidden">
+          <Topbar email={me?.email} />
+          <main ref={mainRef} className="flex-1 overflow-y-auto">
+            <div className="mx-auto w-full max-w-[1500px] p-6">
+              {allowed ? children : (
+                <div className="grid h-[60vh] place-items-center text-center">
+                  <div>
+                    <p className="font-display text-lg font-semibold">Access restricted</p>
+                    <p className="mt-1 text-sm text-muted-foreground">You don’t have permission to view this page. Redirecting…</p>
+                  </div>
                 </div>
-              </div>
-            )}
-          </div>
-        </main>
+              )}
+            </div>
+          </main>
+        </div>
+        <IncomingCallPopup />
       </div>
-      <IncomingCallPopup />
-    </div>
+    </CallProvider>
   );
 }

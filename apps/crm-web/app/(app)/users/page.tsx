@@ -65,6 +65,7 @@ export default function UsersPage() {
     { key: 'role', header: 'Role', render: (u) => <span className={`rounded-full px-2.5 py-[3px] text-[11.5px] font-bold ${ROLE_META[u.role].cls}`}>{ROLE_META[u.role].label}</span> },
     { key: 'status', header: 'Status', render: (u) => <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-[3px] text-[11.5px] font-semibold ${u.isActive ? 'bg-[#e7eed8] text-[#42512f]' : 'bg-[#e7f0f8] text-[#2c5d8f]'}`}><span className="h-1.5 w-1.5 rounded-full" style={{ background: 'currentColor' }} />{u.isActive ? 'Active' : 'Inactive'}</span> },
     { key: 'shift', header: 'Shift', render: (u) => u.shiftStart ? <span className="font-mono text-[12px]">{u.shiftStart}</span> : <span className="text-muted-foreground">—</span> },
+    { key: 'openphone', header: 'OpenPhone #', render: (u) => u.openphoneNumber ? <span className="font-mono text-[12px]">{u.openphoneNumber}</span> : <span className="text-muted-foreground">—</span> },
     { key: 'created', header: 'Created', cellClassName: 'text-muted-foreground', render: (u) => new Date(u.createdAt).toLocaleDateString() },
     {
       key: 'actions', header: '', required: true, headerClassName: 'text-right', cellClassName: 'text-right',
@@ -138,12 +139,13 @@ function UserModal({ user, onClose, onSaved }: { user: User | null; onClose: () 
   const [role, setRole] = useState<UserRole>(user?.role ?? 'employee');
   const [isActive, setIsActive] = useState(user?.isActive ?? true);
   const [shiftStart, setShiftStart] = useState(user?.shiftStart ?? '');
+  const [openphoneNumber, setOpenphoneNumber] = useState(user?.openphoneNumber ?? '');
 
   const save = useMutation({
     mutationFn: () =>
       isEdit
-        ? usersApi.update(user!.id, { name, email, role, isActive, shiftStart, ...(password ? { password } : {}) })
-        : usersApi.create({ name, email, password, role }),
+        ? usersApi.update(user!.id, { name, email, role, isActive, shiftStart, openphoneNumber, ...(password ? { password } : {}) })
+        : usersApi.create({ name, email, password, role, ...(openphoneNumber.trim() ? { openphoneNumber } : {}) }),
     onSuccess: onSaved,
   });
 
@@ -178,6 +180,10 @@ function UserModal({ user, onClose, onSaved }: { user: User | null; onClose: () 
             <select value={role} onChange={(e) => setRole(e.target.value as UserRole)} className="w-full rounded-md border bg-background px-3 py-2 text-sm">
               {ROLE_SELECT.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
             </select>
+          </label>
+          <label className="block space-y-1 text-sm">
+            <span className="font-medium">OpenPhone number <span className="text-muted-foreground">(E.164 — the number this caller sends SMS / dials from; blank = use workspace default)</span></span>
+            <input value={openphoneNumber} onChange={(e) => setOpenphoneNumber(e.target.value)} placeholder="+15551234567" className="w-full rounded-md border bg-background px-3 py-2 font-mono text-sm" />
           </label>
           {isEdit && (
             <label className="block space-y-1 text-sm">
