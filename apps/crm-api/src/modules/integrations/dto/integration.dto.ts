@@ -17,15 +17,3 @@ export class ConnectOpenPhoneDto {
   @IsString()
   webhookSecret?: string;
 }
-
-export class ConnectQuoDto {
-  @ApiProperty({ description: 'Quo API base URL' })
-  @IsString()
-  @MinLength(1)
-  baseUrl: string;
-
-  @ApiProperty({ description: 'Quo API key' })
-  @IsString()
-  @MinLength(1)
-  apiKey: string;
-}

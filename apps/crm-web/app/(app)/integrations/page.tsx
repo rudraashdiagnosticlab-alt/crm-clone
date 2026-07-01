@@ -9,13 +9,10 @@ import { KpiCard } from '@/components/dashboard/kpi-card';
 import { DataTable, type ColumnDef } from '@/components/data-table';
 import { FilterSelect } from '@/components/filter-controls';
 
-type ConnectProvider = 'openphone' | 'quo';
-
 type SyncRow = (typeof SYNC)[number];
 
 const BASE_INTEGRATIONS = [
-  { nm: 'OpenPhone', logo: 'OP', bg: '#5b5bd6', ds: 'Cloud calling, SMS & call recording. Primary dialer for the sales team.', connected: false, meta: 'Not connected' },
-  { nm: 'Quo', logo: 'QU', bg: '#42512f', ds: 'Lead sync — pushes qualified leads to Quo and tracks sync status.', connected: false, meta: 'Not connected' },
+  { nm: 'OpenPhone', logo: 'OP', bg: '#5b5bd6', ds: 'Cloud calling, SMS, call recording & contact/lead sync. Primary dialer for the sales team.', connected: false, meta: 'Not connected' },
   { nm: 'Twilio', logo: 'TW', bg: '#f22f46', ds: 'Programmable voice API for auto-dialer and call queue routing.', connected: false, meta: 'Configure TWILIO_* in .env' },
   { nm: 'Aircall', logo: 'AC', bg: '#00b388', ds: 'Call center platform with live monitoring and analytics.', connected: false, meta: 'Not connected' },
   { nm: 'RingCentral', logo: 'RC', bg: '#0684bc', ds: 'Enterprise cloud communications and team messaging.', connected: false, meta: 'Not connected' },
@@ -41,7 +38,7 @@ export default function IntegrationsPage() {
   const qc = useQueryClient();
   const [tab, setTab] = useState<Tab>('Connections');
   const [syncStatus, setSyncStatus] = useState('');
-  const [connect, setConnect] = useState<ConnectProvider | null>(null);
+  const [connectOpen, setConnectOpen] = useState(false);
   const { data: cfg } = useQuery({ queryKey: ['config-status'], queryFn: configApi.status, retry: false });
   const { data: intg } = useQuery({ queryKey: ['integrations-status'], queryFn: integrationsApi.status, retry: false });
   // Live OpenPhone probe (lists workspace numbers) for the connected number count.
@@ -61,14 +58,6 @@ export default function IntegrationsPage() {
         meta: on ? `Connected · ${op?.phoneNumbers.length ?? 0} number(s)` : 'Sandbox mode · click Connect to add your API key',
       };
     }
-    if (i.nm === 'Quo') {
-      const on = intg?.quo.configured ?? false;
-      return {
-        ...i,
-        connected: on,
-        meta: on ? `Connected · ${intg?.quo.baseUrl}` : 'Sandbox mode · click Connect to add credentials',
-      };
-    }
     return i;
   });
   const activeConnections = INTEGRATIONS.filter((i) => i.connected).length;
@@ -79,7 +68,7 @@ export default function IntegrationsPage() {
     qc.invalidateQueries({ queryKey: ['openphone-status'] });
   };
   const disconnect = useMutation({
-    mutationFn: (p: ConnectProvider) => integrationsApi.disconnect(p),
+    mutationFn: () => integrationsApi.disconnect('openphone'),
     onSuccess: refresh,
   });
 
@@ -122,17 +111,17 @@ export default function IntegrationsPage() {
                 <div className="mt-0.5 max-w-[46ch] text-[12.5px] text-muted-foreground">{i.ds}</div>
                 <div className="mt-[7px] text-[12px] text-muted-foreground">{i.meta}</div>
               </div>
-              {i.nm === 'OpenPhone' || i.nm === 'Quo' ? (
+              {i.nm === 'OpenPhone' ? (
                 <div className="flex shrink-0 flex-col items-end gap-1.5">
                   <button
-                    onClick={() => setConnect(i.nm.toLowerCase() as ConnectProvider)}
+                    onClick={() => setConnectOpen(true)}
                     className={`rounded-md px-[15px] py-[9px] text-[13px] font-semibold ${i.connected ? 'border bg-card hover:bg-muted' : 'bg-primary text-primary-foreground'}`}
                   >
                     {i.connected ? 'Manage' : 'Connect'}
                   </button>
                   {i.connected && (
                     <button
-                      onClick={() => disconnect.mutate(i.nm.toLowerCase() as ConnectProvider)}
+                      onClick={() => disconnect.mutate()}
                       disabled={disconnect.isPending}
                       className="text-[11.5px] font-semibold text-[#9e2b21] hover:underline disabled:opacity-50"
                     >
@@ -148,13 +137,12 @@ export default function IntegrationsPage() {
         </div>
       )}
 
-      {connect && (
+      {connectOpen && (
         <ConnectModal
-          provider={connect}
-          hint={connect === 'openphone' ? intg?.openphone.apiKeyHint ?? null : intg?.quo.apiKeyHint ?? null}
-          baseUrl={connect === 'openphone' ? intg?.openphone.baseUrl ?? '' : intg?.quo.baseUrl ?? ''}
-          onClose={() => setConnect(null)}
-          onSaved={() => { refresh(); setConnect(null); }}
+          hint={intg?.openphone.apiKeyHint ?? null}
+          baseUrl={intg?.openphone.baseUrl ?? ''}
+          onClose={() => setConnectOpen(false)}
+          onSaved={() => { refresh(); setConnectOpen(false); }}
         />
       )}
 
@@ -225,29 +213,25 @@ export default function IntegrationsPage() {
 }
 
 function ConnectModal({
-  provider,
   hint,
   baseUrl,
   onClose,
   onSaved,
 }: {
-  provider: ConnectProvider;
   hint: string | null;
   baseUrl: string;
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const isOP = provider === 'openphone';
   const [apiKey, setApiKey] = useState('');
-  const [url, setUrl] = useState(baseUrl || (isOP ? 'https://api.openphone.com/v1' : ''));
+  const [url, setUrl] = useState(baseUrl || 'https://api.openphone.com/v1');
   const [webhookSecret, setWebhookSecret] = useState('');
 
   const save = useMutation({
-    mutationFn: () =>
-      isOP ? integrationsApi.connectOpenPhone(apiKey, url, webhookSecret || undefined) : integrationsApi.connectQuo(url, apiKey),
+    mutationFn: () => integrationsApi.connectOpenPhone(apiKey, url, webhookSecret || undefined),
     onSuccess: (res: { connected?: boolean; error?: string | null }) => {
       // OpenPhone returns a live probe result; only close if it actually connected.
-      if (isOP && res && res.connected === false) return;
+      if (res && res.connected === false) return;
       onSaved();
     },
   });
@@ -256,7 +240,7 @@ function ConnectModal({
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={onClose}>
       <div className="w-full max-w-md rounded-2xl border bg-card p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="mb-4 flex items-center justify-between">
-          <h3 className="font-display text-[16px] font-semibold">Connect {isOP ? 'OpenPhone' : 'Quo'}</h3>
+          <h3 className="font-display text-[16px] font-semibold">Connect OpenPhone</h3>
           <button onClick={onClose} className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-muted"><X className="h-4 w-4" /></button>
         </div>
 
@@ -264,31 +248,21 @@ function ConnectModal({
           onSubmit={(e) => { e.preventDefault(); save.mutate(); }}
           className="space-y-3"
         >
-          {!isOP && (
-            <label className="block space-y-1 text-sm">
-              <span className="font-medium">API Base URL</span>
-              <input value={url} onChange={(e) => setUrl(e.target.value)} required placeholder="https://api.quo.example/v1" className="w-full rounded-md border bg-background px-3 py-2 text-sm" />
-            </label>
-          )}
           <label className="block space-y-1 text-sm">
             <span className="font-medium">API Key</span>
             <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} required placeholder={hint ? `Saved (${hint}) — enter to replace` : 'Paste API key'} className="w-full rounded-md border bg-background px-3 py-2 text-sm" />
           </label>
-          {isOP && (
-            <>
-              <label className="block space-y-1 text-sm">
-                <span className="font-medium">API Base URL <span className="text-muted-foreground">(optional)</span></span>
-                <input value={url} onChange={(e) => setUrl(e.target.value)} className="w-full rounded-md border bg-background px-3 py-2 text-sm" />
-              </label>
-              <label className="block space-y-1 text-sm">
-                <span className="font-medium">Webhook Secret <span className="text-muted-foreground">(optional)</span></span>
-                <input type="password" value={webhookSecret} onChange={(e) => setWebhookSecret(e.target.value)} placeholder="For verifying inbound webhooks" className="w-full rounded-md border bg-background px-3 py-2 text-sm" />
-              </label>
-            </>
-          )}
+          <label className="block space-y-1 text-sm">
+            <span className="font-medium">API Base URL <span className="text-muted-foreground">(optional)</span></span>
+            <input value={url} onChange={(e) => setUrl(e.target.value)} className="w-full rounded-md border bg-background px-3 py-2 text-sm" />
+          </label>
+          <label className="block space-y-1 text-sm">
+            <span className="font-medium">Webhook Secret <span className="text-muted-foreground">(optional)</span></span>
+            <input type="password" value={webhookSecret} onChange={(e) => setWebhookSecret(e.target.value)} placeholder="For verifying inbound webhooks" className="w-full rounded-md border bg-background px-3 py-2 text-sm" />
+          </label>
 
           {save.isError && <p className="text-[13px] text-[#9e2b21]">Could not save. Check the credentials and try again.</p>}
-          {save.isSuccess && isOP && (save.data as { connected?: boolean })?.connected === false && (
+          {save.isSuccess && (save.data as { connected?: boolean })?.connected === false && (
             <p className="text-[13px] text-[#9e2b21]">Saved, but OpenPhone rejected the key: {(save.data as { error?: string }).error ?? 'verification failed'}.</p>
           )}
 

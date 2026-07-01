@@ -26,8 +26,9 @@ export class ConfigController {
         configured: has('ANTHROPIC_API_KEY') || has('OPENAI_API_KEY'),
       },
       quo: {
-        configured: has('QUO_BASE_URL') && has('QUO_API_KEY'),
-        sandbox: !has('QUO_BASE_URL') || !has('QUO_API_KEY') || env.QUO_SANDBOX === 'true',
+        // Lead → contact sync now rides the OpenPhone key (Quo == OpenPhone).
+        configured: has('OPENPHONE_API_KEY'),
+        sandbox: !has('OPENPHONE_API_KEY') || env.OPENPHONE_SANDBOX === 'true',
       },
       openphone: {
         provider: 'OpenPhone',

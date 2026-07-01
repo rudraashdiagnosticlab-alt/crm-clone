@@ -2,9 +2,9 @@ import { Body, Controller, Delete, Get, Param, Put, BadRequestException } from '
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Role } from '@crm/database';
 import { Roles } from '../../common/decorators/roles.decorator';
-import { IntegrationConfigService, type IntegrationProvider } from './integration-config.service';
+import { IntegrationConfigService } from './integration-config.service';
 import { OpenPhoneService } from '../openphone/openphone.service';
-import { ConnectOpenPhoneDto, ConnectQuoDto } from './dto/integration.dto';
+import { ConnectOpenPhoneDto } from './dto/integration.dto';
 
 /** Admin-managed integration credentials (entered from the UI, stored in DB). */
 @ApiTags('integrations')
@@ -30,16 +30,10 @@ export class IntegrationsController {
     return { ...this.config.status().openphone, connected: probe.connected, error: probe.error, phoneNumbers: probe.phoneNumbers };
   }
 
-  @Put('quo')
-  async connectQuo(@Body() dto: ConnectQuoDto) {
-    await this.config.set('quo', { QUO_BASE_URL: dto.baseUrl, QUO_API_KEY: dto.apiKey });
-    return this.config.status().quo;
-  }
-
   @Delete(':provider')
   async disconnect(@Param('provider') provider: string) {
-    if (provider !== 'openphone' && provider !== 'quo') throw new BadRequestException('Unknown provider');
-    await this.config.clear(provider as IntegrationProvider);
+    if (provider !== 'openphone') throw new BadRequestException('Unknown provider');
+    await this.config.clear(provider);
     return this.config.status();
   }
 }

@@ -353,15 +353,12 @@ export interface CommAnalytics {
 
 export interface IntegrationStatus {
   openphone: { provider: string; configured: boolean; sandbox: boolean; baseUrl: string; apiKeyHint: string | null };
-  quo: { provider: string; configured: boolean; sandbox: boolean; baseUrl: string; apiKeyHint: string | null };
 }
 export const integrationsApi = {
   status: async (): Promise<IntegrationStatus> => (await api.get('/integrations/status')).data,
   connectOpenPhone: async (apiKey: string, baseUrl?: string, webhookSecret?: string) =>
     (await api.put('/integrations/openphone', { apiKey, baseUrl, webhookSecret })).data,
-  connectQuo: async (baseUrl: string, apiKey: string) =>
-    (await api.put('/integrations/quo', { baseUrl, apiKey })).data,
-  disconnect: async (provider: 'openphone' | 'quo') =>
+  disconnect: async (provider: 'openphone') =>
     (await api.delete(`/integrations/${provider}`)).data,
 };
 
