@@ -1,13 +1,13 @@
 import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { Prisma, QuoSyncStatus } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service';
-import { QuoClient } from './quo.client';
-import { QuoLeadPayload } from './quo.types';
+import { OpenPhoneService } from '../openphone/openphone.service';
+import { OpenPhoneContactPayload } from '../openphone/openphone.types';
 
 /**
- * Orchestrates the Lead → Quo sync: build payload → call Quo → persist response
- * (or error) on the lead → write an audit log row. This is the reusable pattern
- * for Contacts/Deals/Accounts/etc.
+ * Orchestrates the Lead → phone-provider sync: build a contact payload → create
+ * it in OpenPhone (Quo) → persist the response (or error) on the lead → write an
+ * audit log row. (Quo == OpenPhone; the lead's quo* columns are kept as-is.)
  */
 @Injectable()
 export class QuoService {
@@ -15,11 +15,11 @@ export class QuoService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly client: QuoClient,
+    private readonly openphone: OpenPhoneService,
   ) {}
 
   get sandboxMode() {
-    return this.client.isSandbox;
+    return this.openphone.isSandbox;
   }
 
   async syncLead(leadId: string) {
@@ -32,17 +32,18 @@ export class QuoService {
       data: { quoStatus: QuoSyncStatus.pending },
     });
 
-    const payload: QuoLeadPayload = {
+    const payload: OpenPhoneContactPayload = {
+      defaultFields: {
+        company: lead.businessName,
+        firstName: lead.businessName,
+        phoneNumbers: [{ name: 'primary', value: lead.phone }],
+        emails: lead.email ? [{ name: 'primary', value: lead.email }] : [],
+      },
       externalId: lead.id,
-      businessName: lead.businessName,
-      phone: lead.phone,
-      email: lead.email,
-      state: lead.state,
-      city: lead.city,
-      timezone: lead.timezone,
+      source: 'CRM',
     };
 
-    const result = await this.client.createLead(payload);
+    const result = await this.openphone.createContact(payload);
 
     // Persist result on the lead + write the audit log in one transaction.
     const [updated] = await this.prisma.$transaction([
@@ -52,14 +53,14 @@ export class QuoService {
           ? {
               quoStatus: QuoSyncStatus.synced,
               quoExternalId: result.data?.id ?? null,
-              quoResponse: (result.rawResponse ?? Prisma.DbNull) as Prisma.InputJsonValue,
+              quoResponse: ((result.data ?? Prisma.DbNull) as unknown) as Prisma.InputJsonValue,
               quoError: null,
               quoSyncedAt: new Date(),
             }
           : {
               quoStatus: QuoSyncStatus.failed,
               quoError: result.error ?? 'Unknown error',
-              quoResponse: (result.rawResponse ?? Prisma.DbNull) as Prisma.InputJsonValue,
+              quoResponse: ((result.data ?? Prisma.DbNull) as unknown) as Prisma.InputJsonValue,
             },
       }),
       this.prisma.quoSyncLog.create({
@@ -68,7 +69,7 @@ export class QuoService {
           success: result.success,
           statusCode: result.statusCode ?? null,
           request: payload as unknown as Prisma.InputJsonValue,
-          response: (result.rawResponse ?? Prisma.DbNull) as Prisma.InputJsonValue,
+          response: ((result.data ?? Prisma.DbNull) as unknown) as Prisma.InputJsonValue,
           error: result.error ?? null,
           durationMs: result.durationMs,
         },
@@ -77,12 +78,12 @@ export class QuoService {
 
     return {
       success: result.success,
-      sandbox: this.client.isSandbox,
+      sandbox: this.openphone.isSandbox,
       quoStatus: updated.quoStatus,
       quoExternalId: updated.quoExternalId,
       quoSyncedAt: updated.quoSyncedAt,
       error: updated.quoError,
-      response: result.data ?? result.rawResponse,
+      response: result.data,
     };
   }
 

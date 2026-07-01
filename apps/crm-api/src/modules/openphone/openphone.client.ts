@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { OpenPhoneNumber, OpenPhoneMessagePayload, OpenPhoneResult } from './openphone.types';
+import { OpenPhoneNumber, OpenPhoneMessagePayload, OpenPhoneResult, OpenPhoneContactPayload, OpenPhoneContact } from './openphone.types';
 
 /**
  * Low-level HTTP client for OpenPhone (https://www.openphone.com/docs/).
@@ -98,5 +98,27 @@ export class OpenPhoneClient {
       return { success: true, statusCode: 202, data: { id: `op_msg_${Math.random().toString(36).slice(2, 10)}`, status: 'queued' }, durationMs: 120 };
     }
     return this.request('/messages', { method: 'POST', body: JSON.stringify(payload) });
+  }
+
+  /** Create (upsert) a contact in the OpenPhone workspace — used for lead sync. */
+  async createContact(payload: OpenPhoneContactPayload): Promise<OpenPhoneResult<OpenPhoneContact>> {
+    if (this.isSandbox) {
+      await new Promise((r) => setTimeout(r, 150));
+      // Deterministic error hook for testing: a phone ending "0000" is rejected.
+      const phone = payload.defaultFields.phoneNumbers?.[0]?.value ?? '';
+      if (phone.endsWith('0000')) {
+        return { success: false, statusCode: 422, error: 'OpenPhone (sandbox) rejected the contact: invalid phone number', durationMs: 150 };
+      }
+      return {
+        success: true,
+        statusCode: 201,
+        data: { id: `op_ct_${Math.random().toString(36).slice(2, 12)}`, externalId: payload.externalId ?? null },
+        durationMs: 150,
+      };
+    }
+    // OpenPhone returns { data: { id, externalId, defaultFields, ... } }
+    const res = await this.request<{ data?: OpenPhoneContact }>('/contacts', { method: 'POST', body: JSON.stringify(payload) });
+    if (!res.success) return res as OpenPhoneResult<OpenPhoneContact>;
+    return { ...res, data: res.data?.data };
   }
 }

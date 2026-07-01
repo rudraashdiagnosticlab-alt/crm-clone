@@ -1,9 +1,10 @@
 import { Module } from '@nestjs/common';
-import { QuoClient } from './quo.client';
 import { QuoService } from './quo.service';
+import { OpenPhoneModule } from '../openphone/openphone.module';
 
 @Module({
-  providers: [QuoClient, QuoService],
-  exports: [QuoService, QuoClient],
+  imports: [OpenPhoneModule],
+  providers: [QuoService],
+  exports: [QuoService],
 })
 export class QuoModule {}
